@@ -9,6 +9,7 @@ local LrDialogs = import "LrDialogs"
 local LrErrors = import "LrErrors"
 local LrPathUtils = import "LrPathUtils"
 local LrProgressScope = import "LrProgressScope"
+local LrView = import "LrView"
 
 local json = require "dkjson"
 local GalleryAPI = require "GalleryAPI"
@@ -195,6 +196,140 @@ function PublishTask.processRenderedPhotos(functionContext, exportContext)
 			"warning"
 		)
 	end
+end
+
+
+-- Per-collection settings dialog. Values persist with the collection in the
+-- catalog (in clear text, which is acceptable for album passwords).
+function PublishTask.viewForCollectionSettings(f, publishSettings, info)
+	local settings = assert(info.collectionSettings)
+	if settings.isListed == nil then
+		settings.isListed = true
+	end
+	if settings.password == nil then
+		settings.password = ""
+	end
+	if settings.description == nil then
+		settings.description = ""
+	end
+	local bind = LrView.bind
+	local share = LrView.share
+	return f:group_box {
+		title = "Album settings",
+		fill_horizontal = 1,
+		bind_to_object = settings,
+		f:row {
+			f:static_text { title = "Password:", alignment = "right", width = share "albumLabel" },
+			f:password_field { value = bind "password", immediate = true, fill_horizontal = 1 },
+		},
+		f:row {
+			f:static_text { title = "", width = share "albumLabel" },
+			f:static_text {
+				title = "Leave empty for a public album. Visitors must enter the password to view and download.",
+				font = "<system/small>",
+			},
+		},
+		f:row {
+			f:static_text { title = "", width = share "albumLabel" },
+			f:checkbox { title = "Show in the public album list", value = bind "isListed" },
+		},
+		f:row {
+			f:static_text { title = "Description:", alignment = "right", width = share "albumLabel" },
+			f:edit_field { value = bind "description", immediate = true, fill_horizontal = 1, height_in_lines = 3 },
+		},
+	}
+end
+
+-- Called after the collection settings dialog is confirmed. Sends name,
+-- password, listing and description; the backend only bumps the password
+-- version when the password actually changed.
+function PublishTask.updateCollectionSettings(publishSettings, info)
+	local api = GalleryAPI.new(publishSettings.serverUrl, publishSettings.apiKey)
+	if not api:isConfigured() then
+		return
+	end
+	local fields = PublishTask.albumFields(info.name, info.collectionSettings)
+	if info.remoteId then
+		local ok, result = api:updateAlbum(info.remoteId, fields)
+		if not ok then
+			LrDialogs.message("Photo Gallery: album settings not saved on server", tostring(result), "warning")
+		end
+		return
+	end
+	-- Not published yet. With a collection object we can create the album
+	-- now; otherwise the first publish creates it.
+	if info.publishedCollection then
+		local ok, album = api:createAlbum(fields)
+		if not ok then
+			LrDialogs.message("Photo Gallery: could not create album", tostring(album), "warning")
+			return
+		end
+		log:infof("created album %s from collection settings", album.id)
+		LrApplication.activeCatalog():withWriteAccessDo("Photo Gallery: store album id", function()
+			info.publishedCollection:setRemoteId(album.id)
+			info.publishedCollection:setRemoteUrl(album.url)
+		end)
+	end
+end
+
+function PublishTask.renamePublishedCollection(publishSettings, info)
+	if not info.remoteId then
+		return
+	end
+	local api = GalleryAPI.new(publishSettings.serverUrl, publishSettings.apiKey)
+	local ok, result = api:updateAlbum(info.remoteId, { name = info.name })
+	if not ok then
+		LrDialogs.message("Photo Gallery: album not renamed on server", tostring(result), "warning")
+	end
+end
+
+function PublishTask.deletePublishedCollection(publishSettings, info)
+	if not info.remoteId then
+		return
+	end
+	local api = GalleryAPI.new(publishSettings.serverUrl, publishSettings.apiKey)
+	local ok, result, status = api:deleteAlbum(info.remoteId)
+	if not ok and status ~= 404 then
+		LrDialogs.message("Photo Gallery: album not deleted on server", tostring(result), "warning")
+	end
+end
+
+function PublishTask.deletePhotosFromPublishedCollection(publishSettings, arrayOfPhotoIds, deletedCallback, localCollectionId)
+	local api = GalleryAPI.new(publishSettings.serverUrl, publishSettings.apiKey)
+	local collection = LrApplication.activeCatalog():getPublishedCollectionByLocalIdentifier(localCollectionId)
+	local albumId = collection and collection:getRemoteId() or nil
+	if not albumId then
+		-- Nothing exists on the server; let Lightroom forget the photos.
+		for _, id in ipairs(arrayOfPhotoIds) do
+			deletedCallback(id)
+		end
+		return
+	end
+	local failed = 0
+	for _, id in ipairs(arrayOfPhotoIds) do
+		local ok, result, status = api:deletePhoto(albumId, id)
+		if ok or status == 404 then
+			deletedCallback(id)
+		else
+			failed = failed + 1
+			log:warnf("delete photo %s: %s", id, tostring(result))
+		end
+	end
+	if failed > 0 then
+		LrDialogs.message("Photo Gallery: some photos were not deleted on the server", string.format("%d photo(s) failed. See the log for details.", failed), "warning")
+	end
+end
+
+function PublishTask.imposeSortOrderOnPublishedCollection(publishSettings, info, remoteIdSequence)
+	if not info.remoteId then
+		return false
+	end
+	local api = GalleryAPI.new(publishSettings.serverUrl, publishSettings.apiKey)
+	local ok, result = api:setOrder(info.remoteId, remoteIdSequence)
+	if not ok then
+		log:warnf("set order: %s", tostring(result))
+	end
+	return ok
 end
 
 return PublishTask

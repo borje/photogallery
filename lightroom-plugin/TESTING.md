@@ -1,27 +1,89 @@
 # Manual test checklist for the Lightroom plug-in
 
 Lightroom's Lua environment has no test runner, so the plug-in is verified by
-hand against a running backend. The backend contract test
-(`backend/internal/api`) defines what the plug-in must send.
+hand against a running backend. The backend tests in `backend/internal/api`
+define what the plug-in must send; `GalleryAPI.lua` is the only file that
+talks HTTP and can be reviewed on its own.
 
 ## Setup
 
 1. Start the backend (locally or in Docker) and create an API key:
    `gallery admin create-api-key --label "Lightroom"`.
 2. Lightroom Classic: File > Plug-in Manager > Add, select
-   `lightroom-plugin/gallery.lrplugin`. Leave "Write a log file" on.
+   `lightroom-plugin/gallery.lrplugin`. Leave "Write a log file" on. The panel
+   shows where `GalleryPublish.log` is written.
 3. Library module > Publish Services > Photo Gallery > Set Up. Enter the
-   server URL and API key, click **Test connection** (expect "Connected"),
-   check that Image Sizing shows "Resize to fit" unchecked, save.
+   server URL and API key, click **Test connection** (expect "Connected").
+   Check that Image Sizing has "Resize to fit" unchecked and File Settings
+   is JPEG/sRGB. Save.
 
-Log file: see the path shown in Plug-in Manager (`GalleryPublish.log`).
-Check it after every step below.
+Check the log after every step below. Server state can be inspected with
+`gallery admin list-albums` and `curl <server>/api/albums`.
 
-## Publish
+## Create and publish
 
-- [ ] Create a published collection "Test album", add 3 photos, click Publish.
-      Expect: album appears at `<server>/api/albums`, three photos with
-      dimensions, titles, captions, keywords and capture time.
-- [ ] Right-click the collection > "Open album in browser" opens the album page.
-- [ ] Download an original from the web and compare with the exported file
-      (byte-identical, `sha256sum`).
+- [ ] Create a published collection "Test album". In the dialog, leave the
+      password empty, keep "Show in the public album list" on, add a
+      description. Add 3 photos with titles, captions and keywords. Publish.
+      Expect: album listed at `/api/albums` with 3 photos; `GET
+      /api/albums/test-album` shows width/height, title, caption, keywords,
+      taken_at and exif for each photo.
+- [ ] Right-click the collection > "Open album in browser" opens the album.
+      Right-click a published photo > "Open photo in browser" opens the album
+      at that photo.
+- [ ] Download an original from the web page and compare it with the file
+      Lightroom exported (`sha256sum`): byte-identical.
+
+## Republish
+
+- [ ] Change a caption in Lightroom. The photo moves to "Modified Photos to
+      Re-Publish". Publish. Expect: same photo id on the server (`GET
+      /api/publish/albums/{id}/photos` still lists one row for it), new
+      caption, new `content_hash`.
+- [ ] Make a develop edit (exposure). Same expectation.
+- [ ] Delete the photo on the server with curl (`DELETE
+      /api/publish/albums/{id}/photos/{photo}`), then republish it from
+      Lightroom. Expect: plug-in falls back to a fresh upload and the photo
+      reappears with a new id.
+
+## Remove photos
+
+- [ ] Remove one photo from the collection and publish. Lightroom asks to
+      confirm deletion from the service. Expect: photo gone from
+      `/api/albums/test-album`, its directory gone under `DATA_DIR/photos`.
+- [ ] Delete a published photo from the catalog. Expect: Lightroom asks
+      ("ask" behaviour) and the photo is removed on the server on confirm.
+
+## Album settings
+
+- [ ] Rename the collection. Expect: new name in `/api/albums`, slug unchanged,
+      "Open album in browser" still works.
+- [ ] Edit collection settings, set a password. Expect: `locked: true` in
+      `/api/albums`, `GET /api/albums/test-album` returns 401 with name and
+      photo_count, `/cover` returns a tiny blurred image.
+- [ ] Edit collection settings again without changing the password (for
+      example change the description). Expect: `password_version` unchanged
+      (`gallery admin list-albums` or sqlite3), so unlocked visitors stay in.
+- [ ] Change the password. Expect: `password_version` incremented.
+- [ ] Clear the password. Expect: album public again.
+- [ ] Turn off "Show in the public album list". Expect: missing from
+      `/api/albums`, still reachable at `/api/albums/test-album`.
+
+## Sort order
+
+- [ ] In the collection, set sort to "Custom Order" and drag photos around.
+      Publish. Expect: `GET /api/albums/test-album` lists photos in that order
+      and the zip download preserves it.
+
+## Delete collection
+
+- [ ] Delete the published collection in Lightroom. Expect: album gone from
+      the server and its directory removed under `DATA_DIR/photos`.
+- [ ] `gallery admin gc --dry-run` reports nothing to clean.
+
+## Error handling
+
+- [ ] Stop the backend and publish. Expect: a clear error per photo, the
+      photos stay in the re-publish queue, nothing crashes.
+- [ ] Revoke the API key (`gallery admin revoke-api-key`) and publish.
+      Expect: "API key rejected" message; Test connection fails.

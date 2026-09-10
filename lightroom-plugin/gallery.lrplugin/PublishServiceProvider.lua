@@ -41,13 +41,36 @@ provider.allowFileFormats = { "JPEG" }
 provider.allowColorSpaces = { "sRGB" }
 provider.canExportVideo = false
 
-provider.small_icon = "icon_small.png"
 provider.titleForPublishedCollection = "Album"
 provider.titleForPublishedCollectionSet = "Album set"
 provider.titleForGoToPublishedCollection = "Open album in browser"
 provider.titleForGoToPublishedPhoto = "Open photo in browser"
 
 provider.canAddCommentsToService = false
+provider.supportsCustomSortOrder = true
+
+-- Changing these in the catalog marks the photo as "modified" for republish.
+-- Develop edits always do.
+function provider.metadataThatTriggersRepublish(publishSettings)
+	return {
+		default = false,
+		title = true,
+		caption = true,
+		keywords = true,
+		dateCreated = true,
+	}
+end
+
+function provider.shouldDeletePhotosFromServiceOnDeleteFromCatalog(publishSettings, nPhotos)
+	return "ask"
+end
+
+function provider.validatePublishedCollectionName(proposedName)
+	if proposedName == nil or proposedName:match("^%s*$") then
+		return false, "The album needs a name."
+	end
+	return true
+end
 
 function provider.startDialog(propertyTable)
 	if propertyTable.connectionStatus == nil then
@@ -126,5 +149,11 @@ function provider.goToPublishedPhoto(publishSettings, info)
 end
 
 provider.processRenderedPhotos = PublishTask.processRenderedPhotos
+provider.viewForCollectionSettings = PublishTask.viewForCollectionSettings
+provider.updateCollectionSettings = PublishTask.updateCollectionSettings
+provider.renamePublishedCollection = PublishTask.renamePublishedCollection
+provider.deletePublishedCollection = PublishTask.deletePublishedCollection
+provider.deletePhotosFromPublishedCollection = PublishTask.deletePhotosFromPublishedCollection
+provider.imposeSortOrderOnPublishedCollection = PublishTask.imposeSortOrderOnPublishedCollection
 
 return provider
