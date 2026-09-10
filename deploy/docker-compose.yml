@@ -17,7 +17,6 @@ services:
     environment:
       DATA_DIR: /data
       FRONTEND_DIR: /srv/frontend
-      LISTEN_ADDR: ":8080"
       LOG_FORMAT: json
       LOG_LEVEL: ${LOG_LEVEL:-info}
       SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET in .env}

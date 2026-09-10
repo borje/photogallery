@@ -34,7 +34,6 @@ COPY --from=backend /out/gallery /usr/local/bin/gallery
 COPY --from=frontend /src/frontend/dist/ /srv/frontend/
 ENV DATA_DIR=/data \
     FRONTEND_DIR=/srv/frontend \
-    LISTEN_ADDR=:8080 \
     LOG_FORMAT=json
 USER gallery
 VOLUME /data
