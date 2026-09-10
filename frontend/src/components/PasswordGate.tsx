@@ -41,11 +41,9 @@ export default function PasswordGate({ slug, name, count, breadcrumb, onUnlocked
 
   return (
     <div className="mx-auto max-w-sm py-16">
-      {breadcrumb && breadcrumb.length > 0 && (
-        <div className="mb-6 flex justify-center">
-          <Breadcrumb crumbs={breadcrumb} />
-        </div>
-      )}
+      <div className="mb-6 flex justify-center">
+        <Breadcrumb crumbs={breadcrumb} current={name} />
+      </div>
       <div className="mb-6 flex flex-col items-center gap-3 text-center">
         <div className="rounded-full bg-muted p-3">
           <Lock className="size-6" aria-hidden="true" />

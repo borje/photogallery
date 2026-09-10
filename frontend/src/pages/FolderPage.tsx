@@ -42,7 +42,7 @@ export default function FolderPage() {
   return (
     <div className="space-y-6">
       <div className="space-y-2">
-        <Breadcrumb crumbs={data.breadcrumb} />
+        <Breadcrumb crumbs={data.breadcrumb} current={data.name} />
         <h1 className="text-3xl font-semibold tracking-tight">{data.name}</h1>
       </div>
       <ChildGrid folders={data.folders} albums={data.albums} emptyMessage="This folder is empty." />

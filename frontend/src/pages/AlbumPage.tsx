@@ -62,7 +62,7 @@ export default function AlbumPage() {
   const dates = formatDateRange(data.taken_from, data.taken_to)
   return (
     <div className="space-y-6">
-      <Breadcrumb crumbs={data.breadcrumb} />
+      <Breadcrumb crumbs={data.breadcrumb} current={data.name} />
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="space-y-1">
           <h1 className="flex items-center gap-2 text-3xl font-semibold tracking-tight">
