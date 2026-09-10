@@ -7,8 +7,8 @@ export default function Breadcrumb({ crumbs }: { crumbs?: Crumb[] }) {
   if (!crumbs || crumbs.length === 0) return null
   return (
     <nav aria-label="Breadcrumb" className="flex flex-wrap items-center gap-1 text-sm text-muted-foreground">
-      <Link to="/" className="hover:text-foreground hover:underline">
-        Gallery
+      <Link to="/" aria-label="Gallery" className="hover:text-foreground hover:underline">
+        🏠
       </Link>
       {crumbs.map((c) => (
         <span key={c.slug} className="flex items-center gap-1">
