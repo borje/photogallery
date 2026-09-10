@@ -241,3 +241,22 @@ func TestAPIKeys(t *testing.T) {
 		t.Fatalf("k1: %+v", k1)
 	}
 }
+
+func TestSessionSecret(t *testing.T) {
+	d := openTest(t)
+	ctx := context.Background()
+	if _, err := d.SessionSecret(ctx); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("before generation: %v", err)
+	}
+	want := []byte("0123456789012345678901234567890123456789")
+	if err := d.SetSessionSecret(ctx, want); err != nil {
+		t.Fatal(err)
+	}
+	got, err := d.SessionSecret(ctx)
+	if err != nil || string(got) != string(want) {
+		t.Fatalf("roundtrip: %q err=%v", got, err)
+	}
+	if err := d.SetSessionSecret(ctx, want); err == nil {
+		t.Fatal("setting a second secret should fail")
+	}
+}

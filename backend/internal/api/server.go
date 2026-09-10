@@ -3,7 +3,10 @@
 package api
 
 import (
+	"context"
 	"crypto/rand"
+	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -50,7 +53,7 @@ type Server struct {
 const jsonTimeout = 30 * time.Second
 
 // New builds the server and its routes.
-func New(d Deps) *Server {
+func New(d Deps) (*Server, error) {
 	s := &Server{
 		db: d.DB, store: d.Store, cfg: d.Cfg, log: d.Log, now: d.Now, rand: d.Rand,
 		deriveSem: make(chan struct{}, runtime.NumCPU()),
@@ -69,15 +72,9 @@ func New(d Deps) *Server {
 	if web == nil {
 		web = http.NotFoundHandler()
 	}
-	secret := []byte(s.cfg.SessionSecret)
-	if len(secret) == 0 {
-		// Only reachable outside `serve` (which validates the config):
-		// sessions then last for this process only.
-		secret = make([]byte, 32)
-		if _, err := io.ReadFull(s.rand, secret); err != nil {
-			panic("api: cannot generate session secret: " + err.Error())
-		}
-		s.log.Warn("SESSION_SECRET not set; using a random per-process secret")
+	secret, err := s.resolveSessionSecret(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("api: resolve session secret: %w", err)
 	}
 	s.sessions = auth.NewSessions(secret, sessionTTL*time.Second, s.now)
 	s.limiter = auth.NewRateLimiter(unlockBurst, unlockRefillPerMin, s.now)
@@ -89,7 +86,28 @@ func New(d Deps) *Server {
 	mux.Handle("/", web)
 
 	s.handler = securityHeaders(s.requestLog(s.recoverer(mux)))
-	return s
+	return s, nil
+}
+
+// resolveSessionSecret loads the session-cookie signing secret persisted in
+// the DB, generating and storing one on first boot.
+func (s *Server) resolveSessionSecret(ctx context.Context) ([]byte, error) {
+	secret, err := s.db.SessionSecret(ctx)
+	if err == nil {
+		return secret, nil
+	}
+	if !errors.Is(err, db.ErrNotFound) {
+		return nil, err
+	}
+	secret = make([]byte, 32)
+	if _, err := io.ReadFull(s.rand, secret); err != nil {
+		return nil, fmt.Errorf("generate session secret: %w", err)
+	}
+	if err := s.db.SetSessionSecret(ctx, secret); err != nil {
+		return nil, err
+	}
+	s.log.Info("generated session secret and stored it in the database")
+	return secret, nil
 }
 
 func (s *Server) routes(mux *http.ServeMux) {

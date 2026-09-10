@@ -88,9 +88,6 @@ func openData(ctx context.Context, cfg config.Config) (*db.DB, *storage.Store, e
 }
 
 func serve(cfg config.Config) error {
-	if err := cfg.ValidateForServe(); err != nil {
-		return err
-	}
 	logger := newLogger(cfg)
 	slog.SetDefault(logger)
 
@@ -106,13 +103,16 @@ func serve(cfg config.Config) error {
 	}
 	defer database.Close()
 
-	handler := api.New(api.Deps{
+	handler, err := api.New(api.Deps{
 		DB:    database,
 		Store: store,
 		Cfg:   cfg,
 		Log:   logger,
 		Web:   web.Handler(cfg.FrontendDir),
 	})
+	if err != nil {
+		return err
+	}
 	srv := &http.Server{
 		Addr:              cfg.ListenAddr,
 		Handler:           handler,

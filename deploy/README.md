@@ -5,7 +5,7 @@ React frontend. State lives in the `/data` volume (`gallery.db` plus
 `photos/`).
 
 ```
-cp deploy/.env.example deploy/.env      # set SESSION_SECRET, PUBLIC_BASE_URL
+cp deploy/.env.example deploy/.env      # set PUBLIC_BASE_URL
 cd deploy && docker compose up -d --build
 docker compose exec gallery gallery admin create-api-key --label "Lightroom"
 ```
@@ -39,6 +39,6 @@ and rsyncs photos and snapshot to `DEST`. Run it from cron on the host
 ## Development
 
 ```
-cd backend && SESSION_SECRET=$(openssl rand -base64 48) DATA_DIR=/tmp/gallery go run ./cmd/gallery serve
+cd backend && DATA_DIR=/tmp/gallery go run ./cmd/gallery serve
 cd frontend && npm run dev          # http://localhost:5173, proxies /api to :8080
 ```

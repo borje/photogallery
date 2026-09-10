@@ -27,7 +27,7 @@ are fixed; do not re-open them without asking. Code, comments and docs are in En
 cd backend
 go build -p 1 ./...      # -p 1: this dev machine has 2 GB RAM; modernc.org/libc is heavy
 go test -p 1 ./...
-SESSION_SECRET=$(openssl rand -base64 48) DATA_DIR=/tmp/gallery go run ./cmd/gallery serve
+DATA_DIR=/tmp/gallery go run ./cmd/gallery serve
 go run ./cmd/gallery admin create-api-key --label "Lightroom laptop"
 ```
 

@@ -61,7 +61,7 @@ func newEnv(t *testing.T) *env {
 	}
 	e := &env{t: t, db: database, store: store, now: testStart}
 	e.key = e.createKey("test")
-	e.srv = New(Deps{
+	srv, err := New(Deps{
 		DB:    database,
 		Store: store,
 		Cfg:   config.Config{PublicBaseURL: "https://photos.example", MaxUploadBytes: 20 << 20},
@@ -69,6 +69,10 @@ func newEnv(t *testing.T) *env {
 		Now:   func() time.Time { return e.now },
 		Rand:  mathrand.New(mathrand.NewSource(1)),
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.srv = srv
 	return e
 }
 

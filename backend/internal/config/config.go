@@ -15,7 +15,6 @@ type Config struct {
 	ListenAddr     string
 	DataDir        string
 	FrontendDir    string
-	SessionSecret  string
 	PublicBaseURL  string
 	TrustedProxies []netip.Prefix
 	MaxUploadBytes int64
@@ -35,7 +34,6 @@ func FromEnv(getenv func(string) string) (Config, error) {
 		ListenAddr:    get("LISTEN_ADDR", ":8080"),
 		DataDir:       get("DATA_DIR", "./data"),
 		FrontendDir:   get("FRONTEND_DIR", ""),
-		SessionSecret: getenv("SESSION_SECRET"),
 		PublicBaseURL: strings.TrimRight(get("PUBLIC_BASE_URL", "http://localhost:8080"), "/"),
 		LogLevel:      strings.ToLower(get("LOG_LEVEL", "info")),
 		LogFormat:     strings.ToLower(get("LOG_FORMAT", "text")),
@@ -67,12 +65,4 @@ func FromEnv(getenv func(string) string) (Config, error) {
 		return c, errors.New("LOG_FORMAT must be \"text\" or \"json\"")
 	}
 	return c, nil
-}
-
-// ValidateForServe checks settings that only the HTTP server needs.
-func (c Config) ValidateForServe() error {
-	if len(c.SessionSecret) < 32 {
-		return errors.New("SESSION_SECRET must be set to at least 32 characters (for example: openssl rand -base64 48)")
-	}
-	return nil
 }

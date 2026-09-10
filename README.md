@@ -37,7 +37,7 @@ The design document with all decisions is
 ## Quick start (Docker)
 
 ```
-cp deploy/.env.example deploy/.env      # set SESSION_SECRET and PUBLIC_BASE_URL
+cp deploy/.env.example deploy/.env      # set PUBLIC_BASE_URL
 cd deploy && docker compose up -d --build
 docker compose exec gallery gallery admin create-api-key --label "Lightroom"
 ```
@@ -71,7 +71,7 @@ Requirements: Go 1.26, `libvips-dev` and `pkg-config`, Node 22.
 ```
 # backend on :8080
 cd backend
-SESSION_SECRET=$(openssl rand -base64 48) DATA_DIR=/tmp/gallery go run ./cmd/gallery serve
+DATA_DIR=/tmp/gallery go run ./cmd/gallery serve
 go test ./...
 
 # frontend on :5173, proxies /api to :8080
@@ -88,7 +88,6 @@ is the manual checklist to run against a live server.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `SESSION_SECRET` | required | Signs the visitor session cookie (32+ characters). |
 | `PUBLIC_BASE_URL` | `http://localhost:8080` | Public origin used in links the plugin records. |
 | `DATA_DIR` | `./data` | SQLite database and photo files. |
 | `FRONTEND_DIR` | unset | Built frontend to serve; unset gives 404 for non-API paths. |

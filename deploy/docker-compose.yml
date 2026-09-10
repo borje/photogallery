@@ -1,5 +1,5 @@
-# Copy .env.example to .env next to this file and set SESSION_SECRET and
-# PUBLIC_BASE_URL before starting:  docker compose up -d --build
+# Copy .env.example to .env next to this file and set PUBLIC_BASE_URL before
+# starting:  docker compose up -d --build
 #
 # Traefik (or another TLS-terminating proxy) is expected in front of the
 # container and is not configured here. Remember to raise its response
@@ -19,7 +19,6 @@ services:
       FRONTEND_DIR: /srv/frontend
       LOG_FORMAT: json
       LOG_LEVEL: ${LOG_LEVEL:-info}
-      SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET in .env}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8080}
       TRUSTED_PROXY_CIDR: ${TRUSTED_PROXY_CIDR:-}
       MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-100}
