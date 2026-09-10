@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"regexp"
 
+	"github.com/bege/photogallery/backend/internal/auth"
 	"github.com/bege/photogallery/backend/internal/db"
 )
 
@@ -16,9 +17,20 @@ func validSlug(s string) bool {
 
 // albumAccess reports whether the request may see the album's content.
 // Public albums are always visible; protected albums require a session
-// grant (added with password protection).
+// cookie granting this album at its current password version.
 func (s *Server) albumAccess(r *http.Request, a *db.Album) bool {
-	return !a.Protected()
+	if !a.Protected() {
+		return true
+	}
+	c, err := r.Cookie(auth.SessionCookieName)
+	if err != nil {
+		return false
+	}
+	sess, ok := s.sessions.Decode(c.Value)
+	if !ok {
+		return false
+	}
+	return sess.Granted(a.ID, a.PasswordVersion)
 }
 
 // passwordRequired answers 401 with just enough information for the

@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/bege/photogallery/backend/internal/auth"
 	"github.com/bege/photogallery/backend/internal/config"
 	"github.com/bege/photogallery/backend/internal/db"
 	"github.com/bege/photogallery/backend/internal/storage"
@@ -39,6 +40,9 @@ type Server struct {
 
 	deriveSem chan struct{} // bounds concurrent libvips derivative generation
 	zipSem    chan struct{} // bounds concurrent zip downloads
+
+	sessions *auth.Sessions
+	limiter  *auth.RateLimiter
 }
 
 // jsonTimeout bounds handlers that produce small JSON responses. Uploads
@@ -65,6 +69,18 @@ func New(d Deps) *Server {
 	if web == nil {
 		web = http.NotFoundHandler()
 	}
+	secret := []byte(s.cfg.SessionSecret)
+	if len(secret) == 0 {
+		// Only reachable outside `serve` (which validates the config):
+		// sessions then last for this process only.
+		secret = make([]byte, 32)
+		if _, err := io.ReadFull(s.rand, secret); err != nil {
+			panic("api: cannot generate session secret: " + err.Error())
+		}
+		s.log.Warn("SESSION_SECRET not set; using a random per-process secret")
+	}
+	s.sessions = auth.NewSessions(secret, sessionTTL*time.Second, s.now)
+	s.limiter = auth.NewRateLimiter(unlockBurst, unlockRefillPerMin, s.now)
 
 	mux := http.NewServeMux()
 	s.routes(mux)
@@ -99,6 +115,7 @@ func (s *Server) routes(mux *http.ServeMux) {
 	visitorJSON := func(h http.HandlerFunc) http.Handler { return http.TimeoutHandler(h, jsonTimeout, timeoutBody) }
 	mux.Handle("GET /api/albums", visitorJSON(s.listAlbums))
 	mux.Handle("GET /api/albums/{slug}", visitorJSON(s.getAlbum))
+	mux.Handle("POST /api/albums/{slug}/unlock", visitorJSON(s.unlockAlbum))
 	mux.HandleFunc("GET /api/albums/{slug}/cover", s.albumCover)
 	mux.HandleFunc("GET /api/albums/{slug}/photos/{photo_id}/{variant}", s.getPhotoVariant)
 	mux.HandleFunc("GET /api/albums/{slug}/download", s.downloadAlbum)
