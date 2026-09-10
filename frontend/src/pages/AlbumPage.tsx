@@ -62,7 +62,7 @@ export default function AlbumPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="space-y-1">
-          <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight">
+          <h1 className="flex items-center gap-2 text-3xl font-semibold tracking-tight">
             {data.name}
             {data.locked && (
               <Badge variant="secondary" className="gap-1">

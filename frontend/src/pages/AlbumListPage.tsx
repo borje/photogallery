@@ -9,7 +9,7 @@ export default function AlbumListPage() {
 
   if (isPending) {
     return (
-      <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3" aria-busy="true" aria-label="Loading albums">
+      <div className="grid gap-x-6 gap-y-8 sm:grid-cols-2 lg:grid-cols-3" aria-busy="true" aria-label="Loading albums">
         {Array.from({ length: 6 }).map((_, i) => (
           <div key={i} className="space-y-3">
             <Skeleton className="aspect-[4/3] w-full" />
@@ -32,7 +32,7 @@ export default function AlbumListPage() {
     return <p className="py-24 text-center text-muted-foreground">No albums have been published yet.</p>
   }
   return (
-    <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+    <div className="grid gap-x-6 gap-y-8 sm:grid-cols-2 lg:grid-cols-3">
       {data.map((album) => (
         <AlbumCard key={album.slug} album={album} />
       ))}

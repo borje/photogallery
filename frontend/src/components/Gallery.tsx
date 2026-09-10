@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { RowsPhotoAlbum } from 'react-photo-album'
 import 'react-photo-album/rows.css'
+import './Gallery.css'
 import Lightbox from 'yet-another-react-lightbox'
 import Captions from 'yet-another-react-lightbox/plugins/captions'
 import Download from 'yet-another-react-lightbox/plugins/download'
@@ -55,8 +56,8 @@ export default function Gallery({ photos }: { photos: Photo[] }) {
     <>
       <RowsPhotoAlbum
         photos={items}
-        targetRowHeight={240}
-        spacing={8}
+        targetRowHeight={260}
+        spacing={6}
         defaultContainerWidth={1168}
         sizes={{ size: '1168px', sizes: [{ viewport: '(max-width: 1200px)', size: 'calc(100vw - 32px)' }] }}
         breakpoints={[360, 600, 900, 1200]}

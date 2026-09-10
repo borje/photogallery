@@ -7,15 +7,20 @@ import NotFoundPage from '@/pages/NotFoundPage'
 function Layout() {
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <header className="border-b">
+      <header className="sticky top-0 z-40 border-b border-border/60 bg-background/75 backdrop-blur-md">
         <div className="mx-auto flex max-w-7xl items-center gap-2 px-4 py-3">
-          <Link to="/" className="flex items-center gap-2 font-semibold tracking-tight">
-            <Camera className="size-5" aria-hidden="true" />
+          <Link
+            to="/"
+            className="flex items-center gap-2.5 font-semibold tracking-tight transition-opacity hover:opacity-80"
+          >
+            <span className="flex size-7 items-center justify-center rounded-md bg-muted text-foreground">
+              <Camera className="size-4" aria-hidden="true" />
+            </span>
             Photo Gallery
           </Link>
         </div>
       </header>
-      <main className="mx-auto max-w-7xl px-4 py-6">
+      <main className="mx-auto max-w-7xl px-4 py-8">
         <Outlet />
       </main>
     </div>

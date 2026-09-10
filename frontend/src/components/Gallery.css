@@ -1,0 +1,14 @@
+/* Gallery tiles: soft corners and a gentle lift on hover. Loaded after
+   react-photo-album/rows.css so these override its defaults. */
+.react-photo-album--image {
+  border-radius: var(--radius-sm);
+  transition: filter 200ms ease, transform 200ms ease;
+}
+.react-photo-album--photo:hover .react-photo-album--image {
+  filter: brightness(1.08);
+}
+.react-photo-album--button:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
