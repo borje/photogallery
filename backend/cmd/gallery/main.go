@@ -5,6 +5,7 @@
 //	gallery admin revoke-api-key <id>
 //	gallery admin list-api-keys
 //	gallery admin list-albums
+//	gallery admin delete-album <slug>
 //	gallery admin set-password <slug> [--clear]
 //	gallery admin gc [--dry-run]
 package main
@@ -37,7 +38,7 @@ func main() {
 }
 
 func usage() error {
-	return errors.New("usage: gallery serve | gallery admin <create-api-key|revoke-api-key|list-api-keys|list-albums|set-password|gc> [flags]")
+	return errors.New("usage: gallery serve | gallery admin <create-api-key|revoke-api-key|list-api-keys|list-albums|delete-album|set-password|gc> [flags]")
 }
 
 func run(args []string) error {

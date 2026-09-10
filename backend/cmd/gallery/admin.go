@@ -43,6 +43,8 @@ func admin(cfg config.Config, args []string) error {
 		return listAlbums(ctx, database)
 	case "set-password":
 		return setPassword(ctx, database, args[1:])
+	case "delete-album":
+		return deleteAlbum(ctx, database, store, args[1:])
 	case "gc":
 		return gc(ctx, database, store, args[1:])
 	default:
@@ -201,6 +203,27 @@ func setPassword(ctx context.Context, database *db.DB, args []string) error {
 	} else {
 		fmt.Println("password updated for", album.Slug)
 	}
+	return nil
+}
+
+func deleteAlbum(ctx context.Context, database *db.DB, store *storage.Store, args []string) error {
+	if len(args) != 1 {
+		return errors.New("usage: gallery admin delete-album <slug>")
+	}
+	album, err := database.GetAlbumBySlug(ctx, args[0])
+	if err != nil {
+		if errors.Is(err, db.ErrNotFound) {
+			return errors.New("no album with that slug")
+		}
+		return err
+	}
+	if err := database.DeleteAlbum(ctx, album.ID); err != nil && !errors.Is(err, db.ErrNotFound) {
+		return err
+	}
+	if err := store.RemoveAlbum(album.ID); err != nil {
+		fmt.Fprintln(os.Stderr, "warning: remove album files:", err)
+	}
+	fmt.Println("deleted", album.Slug)
 	return nil
 }
 
