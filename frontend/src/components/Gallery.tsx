@@ -109,11 +109,11 @@ export default function Gallery({ photos }: { photos: Photo[] }) {
     <>
       <RowsPhotoAlbum
         photos={items}
-        targetRowHeight={260}
+        targetRowHeight={320}
         spacing={6}
-        defaultContainerWidth={1168}
-        sizes={{ size: '1168px', sizes: [{ viewport: '(max-width: 1200px)', size: 'calc(100vw - 32px)' }] }}
-        breakpoints={[360, 600, 900, 1200]}
+        defaultContainerWidth={1504}
+        sizes={{ size: '1504px', sizes: [{ viewport: '(max-width: 1536px)', size: 'calc(100vw - 32px)' }] }}
+        breakpoints={[360, 600, 900, 1200, 1536]}
         onClick={({ index: i }) => setPhoto(photos[i].id, false)}
       />
       <Lightbox

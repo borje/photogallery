@@ -21,7 +21,7 @@ function Layout() {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <header className="sticky top-0 z-40 border-b border-border/60 bg-background/75 backdrop-blur-md">
-        <div className="mx-auto flex max-w-7xl items-center gap-2 px-4 py-3">
+        <div className="mx-auto flex max-w-screen-2xl items-center gap-2 px-4 py-3">
           <Link
             to="/"
             className="flex items-center gap-2.5 font-semibold tracking-tight transition-opacity hover:opacity-80"
@@ -33,7 +33,7 @@ function Layout() {
           </Link>
         </div>
       </header>
-      <main className="mx-auto max-w-7xl px-4 py-8">
+      <main className="mx-auto max-w-screen-2xl px-4 py-8">
         <Outlet />
       </main>
     </div>
