@@ -10,6 +10,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"path"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -229,9 +230,46 @@ func (s *Server) ingest(w http.ResponseWriter, r *http.Request, a *db.Album, exi
 				photo.Filename = fn
 			}
 		}
+
+		// Generate display variants into staging, then move everything into
+		// place so a photo is never visible with mismatched files.
+		derived := map[storage.Variant]*storage.Staged{}
+		defer func() {
+			for _, st := range derived {
+				st.Abort()
+			}
+		}()
+		s.deriveSem <- struct{}{}
+		produced, err := image.Derive(up.staged.Path(), info, func(v storage.Variant) (string, error) {
+			st, err := s.store.NewStaged()
+			if err != nil {
+				return "", err
+			}
+			derived[v] = st
+			return st.Path(), nil
+		})
+		<-s.deriveSem
+		if err != nil {
+			s.log.Warn("derive variants", "album", a.ID, "photo", photo.ID, "err", err)
+			writeError(w, http.StatusUnprocessableEntity, "invalid_image", "could not process image")
+			return
+		}
+		for v, st := range derived {
+			if err := s.store.Commit(st, a.ID, photo.ID, v); err != nil {
+				s.internalError(w, r, err)
+				return
+			}
+		}
 		if err := s.store.Commit(up.staged, a.ID, photo.ID, storage.Original); err != nil {
 			s.internalError(w, r, err)
 			return
+		}
+		// A replacement may be smaller than the previous file: drop variants
+		// that were not regenerated (large falls back to original).
+		for _, sz := range image.Sizes {
+			if !slices.Contains(produced, sz.Variant) {
+				_ = s.store.Remove(a.ID, photo.ID, sz.Variant)
+			}
 		}
 	}
 	if photo.Filename == "" {

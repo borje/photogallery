@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"runtime"
 	"time"
 
 	"github.com/bege/photogallery/backend/internal/config"
@@ -35,6 +36,9 @@ type Server struct {
 	now     func() time.Time
 	rand    io.Reader
 	handler http.Handler
+
+	deriveSem chan struct{} // bounds concurrent libvips derivative generation
+	zipSem    chan struct{} // bounds concurrent zip downloads
 }
 
 // jsonTimeout bounds handlers that produce small JSON responses. Uploads
@@ -43,7 +47,11 @@ const jsonTimeout = 30 * time.Second
 
 // New builds the server and its routes.
 func New(d Deps) *Server {
-	s := &Server{db: d.DB, store: d.Store, cfg: d.Cfg, log: d.Log, now: d.Now, rand: d.Rand}
+	s := &Server{
+		db: d.DB, store: d.Store, cfg: d.Cfg, log: d.Log, now: d.Now, rand: d.Rand,
+		deriveSem: make(chan struct{}, runtime.NumCPU()),
+		zipSem:    make(chan struct{}, maxConcurrentZips),
+	}
 	if s.log == nil {
 		s.log = slog.Default()
 	}
@@ -82,6 +90,14 @@ func (s *Server) routes(mux *http.ServeMux) {
 	mux.Handle("PUT /api/publish/albums/{id}/photos/{photo_id}", pub(s.replacePhoto))
 	mux.Handle("DELETE /api/publish/albums/{id}/photos/{photo_id}", pubJSON(s.deletePhoto))
 	mux.Handle("PUT /api/publish/albums/{id}/order", pubJSON(s.setPhotoOrder))
+
+	// Visitor endpoints. Image bytes and zips are not wrapped in a timeout.
+	visitorJSON := func(h http.HandlerFunc) http.Handler { return http.TimeoutHandler(h, jsonTimeout, timeoutBody) }
+	mux.Handle("GET /api/albums", visitorJSON(s.listAlbums))
+	mux.Handle("GET /api/albums/{slug}", visitorJSON(s.getAlbum))
+	mux.HandleFunc("GET /api/albums/{slug}/cover", s.albumCover)
+	mux.HandleFunc("GET /api/albums/{slug}/photos/{photo_id}/{variant}", s.getPhotoVariant)
+	mux.HandleFunc("GET /api/albums/{slug}/download", s.downloadAlbum)
 }
 
 // ServeHTTP implements http.Handler.

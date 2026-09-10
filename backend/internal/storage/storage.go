@@ -295,3 +295,15 @@ func (s *Store) StaleIncoming(now time.Time, maxAge time.Duration) ([]string, er
 	}
 	return out, nil
 }
+
+// Remove deletes one variant file if present.
+func (s *Store) Remove(albumID, photoID string, v Variant) error {
+	p, err := s.Path(albumID, photoID, v)
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(p); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	return nil
+}
