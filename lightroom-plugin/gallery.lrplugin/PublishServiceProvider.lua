@@ -1,0 +1,130 @@
+--[[
+Publish service provider table for the Photo Gallery backend.
+
+Structure follows Adobe's Flickr sample and lrc-immich-plugin: this file
+holds the declarative parts and the settings dialog, PublishTask.lua the
+callbacks that talk to the server.
+]]
+
+local LrDialogs = import "LrDialogs"
+local LrHttp = import "LrHttp"
+local LrTasks = import "LrTasks"
+local LrView = import "LrView"
+
+local GalleryAPI = require "GalleryAPI"
+local PublishTask = require "PublishTask"
+
+local bind = LrView.bind
+local share = LrView.share
+
+local provider = {}
+
+-- Publish only; no plain export variant.
+provider.supportsIncrementalPublish = "only"
+
+-- Service-level settings persisted with the publish connection, plus
+-- defaults for Lightroom's own export settings. The size section stays
+-- visible: the backend generates display sizes from whatever is uploaded,
+-- and the default is "do not resize".
+provider.exportPresetFields = {
+	{ key = "serverUrl", default = "" },
+	{ key = "apiKey", default = "" },
+	{ key = "LR_format", default = "JPEG" },
+	{ key = "LR_export_colorSpace", default = "sRGB" },
+	{ key = "LR_jpeg_quality", default = 0.9 },
+	{ key = "LR_size_doConstrain", default = false },
+	{ key = "LR_removeLocationMetadata", default = true },
+}
+
+provider.hideSections = { "exportLocation", "video", "postProcessing" }
+provider.allowFileFormats = { "JPEG" }
+provider.allowColorSpaces = { "sRGB" }
+provider.canExportVideo = false
+
+provider.small_icon = "icon_small.png"
+provider.titleForPublishedCollection = "Album"
+provider.titleForPublishedCollectionSet = "Album set"
+provider.titleForGoToPublishedCollection = "Open album in browser"
+provider.titleForGoToPublishedPhoto = "Open photo in browser"
+
+provider.canAddCommentsToService = false
+
+function provider.startDialog(propertyTable)
+	if propertyTable.connectionStatus == nil then
+		propertyTable.connectionStatus = ""
+	end
+end
+
+function provider.sectionsForTopOfDialog(f, propertyTable)
+	return {
+		{
+			title = "Photo Gallery server",
+			synopsis = bind { key = "serverUrl", object = propertyTable },
+			bind_to_object = propertyTable,
+
+			f:row {
+				f:static_text { title = "Server URL:", alignment = "right", width = share "labelWidth" },
+				f:edit_field {
+					value = bind "serverUrl",
+					immediate = true,
+					fill_horizontal = 1,
+					tooltip = "For example https://photos.example.com",
+				},
+			},
+			f:row {
+				f:static_text { title = "API key:", alignment = "right", width = share "labelWidth" },
+				f:password_field {
+					value = bind "apiKey",
+					immediate = true,
+					fill_horizontal = 1,
+					tooltip = "Create one on the server with: gallery admin create-api-key",
+				},
+			},
+			f:row {
+				f:static_text { title = "", width = share "labelWidth" },
+				f:push_button {
+					title = "Test connection",
+					action = function()
+						propertyTable.connectionStatus = "Testing..."
+						LrTasks.startAsyncTask(function()
+							local api = GalleryAPI.new(propertyTable.serverUrl, propertyTable.apiKey)
+							local ok, result = api:ping()
+							if ok then
+								propertyTable.connectionStatus = "Connected"
+							else
+								propertyTable.connectionStatus = "Failed"
+								LrDialogs.message("Connection failed", tostring(result), "critical")
+							end
+						end)
+					end,
+				},
+				f:static_text { title = bind "connectionStatus", fill_horizontal = 1 },
+			},
+		},
+	}
+end
+
+function provider.getCollectionBehaviorInfo(publishSettings)
+	return {
+		defaultCollectionName = "Album",
+		defaultCollectionCanBeDeleted = true,
+		canAddCollection = true,
+		maxCollectionSetDepth = 0, -- no nested album sets in v1
+	}
+end
+
+function provider.goToPublishedCollection(publishSettings, info)
+	if info.remoteUrl then
+		LrHttp.openUrlInBrowser(info.remoteUrl)
+	end
+end
+
+function provider.goToPublishedPhoto(publishSettings, info)
+	if info.remoteUrl then
+		LrHttp.openUrlInBrowser(info.remoteUrl)
+	end
+end
+
+provider.processRenderedPhotos = PublishTask.processRenderedPhotos
+
+return provider

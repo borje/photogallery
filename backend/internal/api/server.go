@@ -88,6 +88,10 @@ func (s *Server) routes(mux *http.ServeMux) {
 	mux.Handle("GET /api/publish/albums/{id}/photos", pubJSON(s.listPublishedPhotos))
 	mux.Handle("POST /api/publish/albums/{id}/photos", pub(s.uploadPhoto))
 	mux.Handle("PUT /api/publish/albums/{id}/photos/{photo_id}", pub(s.replacePhoto))
+	// Alias: Lightroom's LrHttp.postMultipart can only POST, so a replace is
+	// also accepted as POST on the photo path.
+	mux.Handle("POST /api/publish/albums/{id}/photos/{photo_id}", pub(s.replacePhoto))
+	mux.Handle("GET /api/publish/ping", pubJSON(s.publishPing))
 	mux.Handle("DELETE /api/publish/albums/{id}/photos/{photo_id}", pubJSON(s.deletePhoto))
 	mux.Handle("PUT /api/publish/albums/{id}/order", pubJSON(s.setPhotoOrder))
 

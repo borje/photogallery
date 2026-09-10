@@ -17,3 +17,9 @@ func (s *Server) healthz(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
+
+// publishPing lets the Lightroom plugin verify URL and API key.
+func (s *Server) publishPing(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}

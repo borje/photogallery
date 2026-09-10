@@ -213,6 +213,12 @@ func TestAPIKeyAuth(t *testing.T) {
 	if rec := e.json(http.MethodPost, "/api/publish/albums", body); rec.Code != 201 {
 		t.Fatalf("valid key: %d %s", rec.Code, rec.Body.String())
 	}
+	if rec := e.request(http.MethodGet, "/api/publish/ping", nil, "", ""); rec.Code != 401 {
+		t.Fatalf("ping without key: %d", rec.Code)
+	}
+	if rec := e.json(http.MethodGet, "/api/publish/ping", nil); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"ok"`) {
+		t.Fatalf("ping: %d %s", rec.Code, rec.Body.String())
+	}
 	keys, _ := e.db.ListAPIKeys(context.Background())
 	for _, k := range keys {
 		if k.ID == "key-test" && (k.LastUsedAt == nil || !k.LastUsedAt.Equal(e.now)) {
@@ -366,6 +372,15 @@ func TestUploadIdempotentAndReplace(t *testing.T) {
 	}
 	if entries, _ := os.ReadDir(filepath.Join(e.store.Root(), "incoming")); len(entries) != 0 {
 		t.Fatalf("staging leftovers: %d", len(entries))
+	}
+
+	// POST on the photo path is an alias for PUT (Lightroom cannot PUT multipart).
+	rec = e.upload(http.MethodPost, "/api/publish/albums/"+a.ID+"/photos/"+id1, map[string]string{"title": "Via POST alias"}, nil, "")
+	if rec.Code != 200 {
+		t.Fatalf("POST alias: %d %s", rec.Code, rec.Body.String())
+	}
+	if p, _ = e.db.GetPhoto(ctx, a.ID, id1); p.Title != "Via POST alias" {
+		t.Fatalf("POST alias did not update: %+v", p)
 	}
 
 	// PUT on a deleted photo → 404 so the plugin falls back to POST.

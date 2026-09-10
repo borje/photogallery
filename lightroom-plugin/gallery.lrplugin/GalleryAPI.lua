@@ -1,0 +1,168 @@
+--[[
+HTTP client for the gallery backend's /api/publish endpoints.
+
+Kept free of Lightroom UI and catalog objects so it can be read and reviewed
+on its own. Every call returns:  ok (boolean), result (table on success,
+error message string on failure), status (HTTP status or nil), body (decoded
+JSON table if any).
+]]
+
+local LrHttp = import "LrHttp"
+local LrPathUtils = import "LrPathUtils"
+local LrTasks = import "LrTasks"
+
+local json = require "dkjson"
+local Util = require "Util"
+
+local GalleryAPI = {}
+GalleryAPI.__index = GalleryAPI
+
+local TIMEOUT = 30 -- seconds, per connection phase
+local UPLOAD_TIMEOUT = 600
+
+function GalleryAPI.normalizeUrl(url)
+	url = Util.trim(url)
+	url = url:gsub("/+$", "")
+	return url
+end
+
+function GalleryAPI.new(serverUrl, apiKey)
+	local self = setmetatable({}, GalleryAPI)
+	self.baseUrl = GalleryAPI.normalizeUrl(serverUrl)
+	self.apiKey = Util.trim(apiKey)
+	return self
+end
+
+function GalleryAPI:isConfigured()
+	return self.baseUrl:match("^https?://") ~= nil and self.apiKey ~= ""
+end
+
+function GalleryAPI:headers(withJsonBody)
+	local h = {
+		{ field = "Authorization", value = "Bearer " .. self.apiKey },
+		{ field = "Accept", value = "application/json" },
+	}
+	if withJsonBody then
+		table.insert(h, { field = "Content-Type", value = "application/json" })
+	end
+	return h
+end
+
+local function decodeBody(body)
+	if type(body) ~= "string" or #body == 0 then
+		return nil
+	end
+	local ok, decoded = LrTasks.pcall(function()
+		return json.decode(body)
+	end)
+	if ok and type(decoded) == "table" then
+		return decoded
+	end
+	return nil
+end
+
+local function parseResponse(body, headers, what)
+	if headers == nil then
+		return false, what .. " failed: no response from server (check the URL and your network)", nil, nil
+	end
+	local status = tonumber(headers.status) or 0
+	local data = decodeBody(body)
+	if status >= 200 and status < 300 then
+		return true, data or {}, status, data
+	end
+	local msg = string.format("%s failed (HTTP %d)", what, status)
+	if status == 401 then
+		msg = msg .. ": API key rejected"
+	elseif data and data.error then
+		msg = msg .. ": " .. tostring(data.error)
+		if data.message and data.message ~= "" then
+			msg = msg .. " - " .. tostring(data.message)
+		end
+	end
+	return false, msg, status, data
+end
+
+-- JSON request. method is GET, POST, PUT or DELETE.
+function GalleryAPI:request(method, path, bodyTable, what)
+	what = what or (method .. " " .. path)
+	if not self:isConfigured() then
+		return false, "Server URL or API key is not set (Publishing Manager > Photo Gallery)", nil, nil
+	end
+	local url = self.baseUrl .. path
+	log:tracef("%s %s", method, url)
+	local response, headers
+	if method == "GET" then
+		response, headers = LrHttp.get(url, self:headers(false), TIMEOUT)
+	else
+		local body = json.encode(bodyTable or setmetatable({}, { __jsontype = "object" }))
+		response, headers = LrHttp.post(url, body, self:headers(true), method, TIMEOUT)
+	end
+	local ok, result, status, data = parseResponse(response, headers, what)
+	if not ok then
+		log:warnf("%s %s -> %s", method, url, tostring(result))
+	end
+	return ok, result, status, data
+end
+
+function GalleryAPI:ping()
+	return self:request("GET", "/api/publish/ping", nil, "Connection test")
+end
+
+function GalleryAPI:createAlbum(fields)
+	return self:request("POST", "/api/publish/albums", fields, "Create album")
+end
+
+function GalleryAPI:updateAlbum(albumId, fields)
+	return self:request("PUT", "/api/publish/albums/" .. albumId, fields, "Update album")
+end
+
+function GalleryAPI:deleteAlbum(albumId)
+	return self:request("DELETE", "/api/publish/albums/" .. albumId, nil, "Delete album")
+end
+
+function GalleryAPI:listPhotos(albumId)
+	return self:request("GET", "/api/publish/albums/" .. albumId .. "/photos", nil, "List photos")
+end
+
+function GalleryAPI:deletePhoto(albumId, photoId)
+	return self:request("DELETE", "/api/publish/albums/" .. albumId .. "/photos/" .. photoId, nil, "Delete photo")
+end
+
+function GalleryAPI:setOrder(albumId, photoIds)
+	return self:request("PUT", "/api/publish/albums/" .. albumId .. "/order", { photo_ids = photoIds }, "Set photo order")
+end
+
+-- Uploads filePath with metadata fields (all strings). With photoId the
+-- call replaces that photo (the backend accepts POST on the photo path
+-- because LrHttp.postMultipart cannot send PUT). Returns ok, result, status.
+function GalleryAPI:uploadPhoto(albumId, filePath, fields, photoId)
+	if not self:isConfigured() then
+		return false, "Server URL or API key is not set", nil, nil
+	end
+	local path = "/api/publish/albums/" .. albumId .. "/photos"
+	if photoId then
+		path = path .. "/" .. photoId
+	end
+	local url = self.baseUrl .. path
+	local chunks = {}
+	for name, value in pairs(fields) do
+		if value ~= nil then
+			table.insert(chunks, { name = name, value = tostring(value) })
+		end
+	end
+	table.insert(chunks, {
+		name = "file",
+		filePath = filePath,
+		fileName = fields.filename or LrPathUtils.leafName(filePath),
+		contentType = "image/jpeg",
+	})
+	log:tracef("POST %s (multipart, %s)", url, tostring(fields.filename))
+	local response, headers = LrHttp.postMultipart(url, chunks, self:headers(false), UPLOAD_TIMEOUT)
+	local ok, result, status, data = parseResponse(response, headers, photoId and "Replace photo" or "Upload photo")
+	if not ok then
+		log:warnf("upload %s -> %s", url, tostring(result))
+	end
+	return ok, result, status, data
+end
+
+return GalleryAPI
