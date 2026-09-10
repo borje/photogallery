@@ -35,12 +35,15 @@ func (s *Server) albumAccess(r *http.Request, a *db.Album) bool {
 
 // passwordRequired answers 401 with just enough information for the
 // visitor to see what they are unlocking.
-func passwordRequired(w http.ResponseWriter, sum *db.AlbumSummary) {
+func passwordRequired(w http.ResponseWriter, sum *db.AlbumSummary, crumbs []crumb) {
 	body := map[string]any{"error": "password_required"}
 	if sum != nil {
 		body["slug"] = sum.Slug
 		body["name"] = sum.Name
 		body["photo_count"] = sum.PhotoCount
+	}
+	if len(crumbs) > 0 {
+		body["breadcrumb"] = crumbs
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusUnauthorized, body)

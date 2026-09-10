@@ -40,7 +40,7 @@ func (s *Server) getPhotoVariant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !s.albumAccess(r, album) {
-		passwordRequired(w, nil)
+		passwordRequired(w, nil, nil)
 		return
 	}
 	photo, err := s.db.GetPhoto(r.Context(), album.ID, photoID)

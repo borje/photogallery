@@ -1,16 +1,38 @@
 import { http, HttpResponse } from 'msw'
-import { emptyAlbum, secretAlbum, summerAlbum, summerDetail, weddingDetail } from './fixtures'
+import {
+  emptyAlbum,
+  icelandDetail,
+  secretAlbum,
+  summerAlbum,
+  summerDetail,
+  travelFolder,
+  travelFolderDetail,
+  weddingDetail,
+} from './fixtures'
 
 /** Slugs the fake server considers unlocked for the current test. */
 export const unlocked = new Set<string>()
 
 export const handlers = [
-  http.get('/api/albums', () => HttpResponse.json({ albums: [secretAlbum, summerAlbum, emptyAlbum] })),
+  http.get('/api/albums', () =>
+    HttpResponse.json({ folders: [travelFolder], albums: [secretAlbum, summerAlbum, emptyAlbum] }),
+  ),
+
+  http.get('/api/folders/:slug', ({ params }) => {
+    switch (params.slug) {
+      case 'travel':
+        return HttpResponse.json(travelFolderDetail)
+      default:
+        return HttpResponse.json({ error: 'folder_not_found' }, { status: 404 })
+    }
+  }),
 
   http.get('/api/albums/:slug', ({ params }) => {
     switch (params.slug) {
       case 'summer-2026':
         return HttpResponse.json(summerDetail)
+      case 'iceland':
+        return HttpResponse.json(icelandDetail)
       case 'wedding':
         if (unlocked.has('wedding')) return HttpResponse.json(weddingDetail)
         return HttpResponse.json(

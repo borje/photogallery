@@ -108,6 +108,14 @@ describe('AlbumPage', () => {
     server.events.removeListener('request:start', spy)
   })
 
+  it('shows a breadcrumb back to the containing folder', async () => {
+    renderApp('/a/iceland')
+    expect(await screen.findByRole('heading', { name: 'Iceland' })).toBeInTheDocument()
+    const nav = screen.getByRole('navigation', { name: 'Breadcrumb' })
+    expect(within(nav).getByRole('link', { name: 'Travel' })).toHaveAttribute('href', '/f/travel')
+    expect(within(nav).getByRole('link', { name: 'Gallery' })).toHaveAttribute('href', '/')
+  })
+
   it('shows not found for unknown albums', async () => {
     renderApp('/a/nope')
     expect(await screen.findByText(/There is no album at this address/)).toBeInTheDocument()

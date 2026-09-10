@@ -33,7 +33,14 @@ export interface Photo {
   urls: PhotoURLs
 }
 
+/** One entry in a breadcrumb trail, root first. */
+export interface Crumb {
+  slug: string
+  name: string
+}
+
 export interface AlbumDetail extends AlbumSummary {
+  breadcrumb?: Crumb[]
   download_url: string
   photos: Photo[]
 }
@@ -44,4 +51,26 @@ export interface PasswordRequired {
   slug?: string
   name?: string
   photo_count?: number
+  breadcrumb?: Crumb[]
+}
+
+/** A folder card: cover image and name only, no stats. */
+export interface FolderSummary {
+  slug: string
+  name: string
+  cover_url?: string
+}
+
+/** The root of the tree: folders and albums with no parent. */
+export interface RootListing {
+  folders: FolderSummary[]
+  albums: AlbumSummary[]
+}
+
+export interface FolderDetail {
+  slug: string
+  name: string
+  breadcrumb?: Crumb[]
+  folders: FolderSummary[]
+  albums: AlbumSummary[]
 }

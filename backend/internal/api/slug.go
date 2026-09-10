@@ -1,11 +1,14 @@
 package api
 
 import (
+	"errors"
 	"io"
 	"strings"
 	"unicode"
 
 	"golang.org/x/text/unicode/norm"
+
+	"github.com/bege/photogallery/backend/internal/db"
 )
 
 const maxSlugLen = 80
@@ -55,4 +58,25 @@ func slugSuffix(rand io.Reader, n int) (string, error) {
 		buf[i] = slugSuffixAlphabet[int(buf[i])%len(slugSuffixAlphabet)]
 	}
 	return string(buf), nil
+}
+
+// withUniqueSlug calls create repeatedly, starting with slugify(name) and
+// appending a random 4-character suffix on each ErrSlugTaken collision.
+func withUniqueSlug(rand io.Reader, name string, setSlug func(slug string), create func() error) error {
+	base := slugify(name)
+	setSlug(base)
+	for attempt := 0; ; attempt++ {
+		err := create()
+		if err == nil {
+			return nil
+		}
+		if !errors.Is(err, db.ErrSlugTaken) || attempt >= slugRetries {
+			return err
+		}
+		suffix, err := slugSuffix(rand, 4)
+		if err != nil {
+			return err
+		}
+		setSlug(base + "-" + suffix)
+	}
 }

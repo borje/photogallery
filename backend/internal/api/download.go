@@ -33,7 +33,7 @@ func (s *Server) downloadAlbum(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !s.albumAccess(r, album) {
-		passwordRequired(w, nil)
+		passwordRequired(w, nil, nil)
 		return
 	}
 	select {

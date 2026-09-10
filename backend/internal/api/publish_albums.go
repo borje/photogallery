@@ -24,6 +24,7 @@ type albumInput struct {
 	Password     *string `json:"password"`
 	IsListed     *bool   `json:"is_listed"`
 	CoverPhotoID *string `json:"cover_photo_id"`
+	ParentID     *string `json:"parent_id"` // "" or omitted = root
 }
 
 type albumOutput struct {
@@ -105,24 +106,20 @@ func (s *Server) createAlbum(w http.ResponseWriter, r *http.Request) {
 		a.PasswordHash = h
 		a.PasswordVersion = 1
 	}
+	if in.ParentID != nil {
+		folderID, ok := s.resolveParentFolder(w, r, *in.ParentID)
+		if !ok {
+			return
+		}
+		a.FolderID = folderID
+	}
 
-	base := slugify(name)
-	a.Slug = base
-	for attempt := 0; ; attempt++ {
-		err := s.db.CreateAlbum(r.Context(), a)
-		if err == nil {
-			break
-		}
-		if !errors.Is(err, db.ErrSlugTaken) || attempt >= slugRetries {
-			s.internalError(w, r, err)
-			return
-		}
-		suffix, err := slugSuffix(s.rand, 4)
-		if err != nil {
-			s.internalError(w, r, err)
-			return
-		}
-		a.Slug = base + "-" + suffix
+	err := withUniqueSlug(s.rand, name, func(slug string) { a.Slug = slug }, func() error {
+		return s.db.CreateAlbum(r.Context(), a)
+	})
+	if err != nil {
+		s.internalError(w, r, err)
+		return
 	}
 	writeJSON(w, http.StatusCreated, s.albumOutput(a))
 }
@@ -152,6 +149,13 @@ func (s *Server) updateAlbum(w http.ResponseWriter, r *http.Request) {
 	}
 	if in.IsListed != nil {
 		a.IsListed = *in.IsListed
+	}
+	if in.ParentID != nil {
+		folderID, ok := s.resolveParentFolder(w, r, *in.ParentID)
+		if !ok {
+			return
+		}
+		a.FolderID = folderID
 	}
 	if in.CoverPhotoID != nil {
 		if *in.CoverPhotoID == "" {

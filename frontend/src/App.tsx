@@ -2,6 +2,7 @@ import { Link, Outlet, Route, Routes } from 'react-router'
 import { Camera } from 'lucide-react'
 import AlbumListPage from '@/pages/AlbumListPage'
 import AlbumPage from '@/pages/AlbumPage'
+import FolderPage from '@/pages/FolderPage'
 import NotFoundPage from '@/pages/NotFoundPage'
 
 function Layout() {
@@ -33,6 +34,7 @@ export default function App() {
       <Route element={<Layout />}>
         <Route index element={<AlbumListPage />} />
         <Route path="a/:slug" element={<AlbumPage />} />
+        <Route path="f/:slug" element={<FolderPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>

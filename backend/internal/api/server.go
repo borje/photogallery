@@ -128,6 +128,9 @@ func (s *Server) routes(mux *http.ServeMux) {
 	mux.Handle("GET /api/publish/ping", pubJSON(s.publishPing))
 	mux.Handle("DELETE /api/publish/albums/{id}/photos/{photo_id}", pubJSON(s.deletePhoto))
 	mux.Handle("PUT /api/publish/albums/{id}/order", pubJSON(s.setPhotoOrder))
+	mux.Handle("POST /api/publish/folders", pubJSON(s.createFolder))
+	mux.Handle("PUT /api/publish/folders/{id}", pubJSON(s.updateFolder))
+	mux.Handle("DELETE /api/publish/folders/{id}", pubJSON(s.deleteFolder))
 
 	// Visitor endpoints. Image bytes and zips are not wrapped in a timeout.
 	visitorJSON := func(h http.HandlerFunc) http.Handler { return http.TimeoutHandler(h, jsonTimeout, timeoutBody) }
@@ -137,6 +140,7 @@ func (s *Server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/albums/{slug}/cover", s.albumCover)
 	mux.HandleFunc("GET /api/albums/{slug}/photos/{photo_id}/{variant}", s.getPhotoVariant)
 	mux.HandleFunc("GET /api/albums/{slug}/download", s.downloadAlbum)
+	mux.Handle("GET /api/folders/{slug}", visitorJSON(s.getFolder))
 }
 
 // ServeHTTP implements http.Handler.
@@ -147,6 +151,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // albumURL is the public page for an album.
 func (s *Server) albumURL(slug string) string {
 	return s.cfg.PublicBaseURL + "/a/" + slug
+}
+
+// folderURL is the public page for a folder.
+func (s *Server) folderURL(slug string) string {
+	return s.cfg.PublicBaseURL + "/f/" + slug
 }
 
 // photoURL is the public page for an album opened at one photo.

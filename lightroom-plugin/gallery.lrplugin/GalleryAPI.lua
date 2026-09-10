@@ -132,6 +132,18 @@ function GalleryAPI:setOrder(albumId, photoIds)
 	return self:request("PUT", "/api/publish/albums/" .. albumId .. "/order", { photo_ids = photoIds }, "Set photo order")
 end
 
+function GalleryAPI:createFolder(fields)
+	return self:request("POST", "/api/publish/folders", fields, "Create album set")
+end
+
+function GalleryAPI:updateFolder(folderId, fields)
+	return self:request("PUT", "/api/publish/folders/" .. folderId, fields, "Update album set")
+end
+
+function GalleryAPI:deleteFolder(folderId)
+	return self:request("DELETE", "/api/publish/folders/" .. folderId, nil, "Delete album set")
+end
+
 -- Uploads filePath with metadata fields (all strings). With photoId the
 -- call replaces that photo (the backend accepts POST on the photo path
 -- because LrHttp.postMultipart cannot send PUT). Returns ok, result, status.

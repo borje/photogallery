@@ -1,4 +1,4 @@
-import type { AlbumDetail, AlbumSummary, Photo } from '@/api/types'
+import type { AlbumDetail, AlbumSummary, FolderDetail, FolderSummary, Photo } from '@/api/types'
 
 export function photo(slug: string, id: string, overrides: Partial<Photo> = {}): Photo {
   const base = `/api/albums/${slug}/photos/${id}/`
@@ -60,4 +60,34 @@ export const weddingDetail: AlbumDetail = {
   ...secretAlbum,
   download_url: '/api/albums/wedding/download',
   photos: [photo('wedding', 'w1')],
+}
+
+export const travelFolder: FolderSummary = {
+  slug: 'travel',
+  name: 'Travel',
+  cover_url: '/api/albums/iceland/cover',
+}
+
+export const icelandAlbum: AlbumSummary = {
+  slug: 'iceland',
+  name: 'Iceland',
+  locked: false,
+  photo_count: 1,
+  taken_from: '2026-03-01T09:00:00',
+  taken_to: '2026-03-01T09:00:00',
+  cover_url: '/api/albums/iceland/cover',
+}
+
+export const travelFolderDetail: FolderDetail = {
+  slug: 'travel',
+  name: 'Travel',
+  folders: [],
+  albums: [icelandAlbum],
+}
+
+export const icelandDetail: AlbumDetail = {
+  ...icelandAlbum,
+  breadcrumb: [{ slug: 'travel', name: 'Travel' }],
+  download_url: '/api/albums/iceland/download',
+  photos: [photo('iceland', 'i1')],
 }

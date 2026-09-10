@@ -81,6 +81,31 @@ Check the log after every step below. Server state can be inspected with
       the server and its directory removed under `DATA_DIR/photos`.
 - [ ] `gallery admin gc --dry-run` reports nothing to clean.
 
+## Album sets (nested folders)
+
+- [ ] Create a published collection set "Travel", and inside it a nested set
+      "2024". Publish a collection from inside "2024". Expect: `gallery admin
+      list-albums` shows a PATH of `/travel/2024` for the album; `GET
+      /api/folders/travel` lists a `2024` child folder; `GET
+      /api/folders/2024` lists the album with a breadcrumb back to `travel`.
+- [ ] Drag the collection from "2024" into "Travel" directly and publish
+      again (no rename/settings dialog touched). Expect: the album's path
+      updates to `/travel` — Lightroom fires no move callback, so this only
+      works because publishing re-resolves the parent chain every time.
+- [ ] Rename the "Travel" set. Expect: the folder's name changes at
+      `/api/folders/travel` (slug unchanged).
+- [ ] Delete the "2024" set (now empty after the drag above) with an album
+      still under "Travel". Expect: only the set is removed; "Travel" and its
+      album are unaffected.
+- [ ] Delete the "Travel" set while it still contains an album. Expect:
+      Lightroom's usual per-collection delete confirmation, then the set,
+      its album and the album's photo files are all gone from the server;
+      `gallery admin gc --dry-run` reports nothing left over.
+- [ ] Delete an album's backend row directly with curl, then publish a new
+      photo into a *different* collection inside the same still-existing
+      set. Expect: only the album is recreated; the set's folder id on the
+      server is reused, not recreated.
+
 ## Error handling
 
 - [ ] Stop the backend and publish. Expect: a clear error per photo, the

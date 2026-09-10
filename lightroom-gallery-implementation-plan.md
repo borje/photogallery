@@ -187,8 +187,18 @@ samtidiga skrivare blir relevant.
 UUID:n lagras som `TEXT`. Tidsstämplar som ISO 8601 `TEXT` i UTC. JSON som `TEXT`.
 
 ```sql
+CREATE TABLE folders (
+    id              TEXT PRIMARY KEY,                 -- UUID
+    parent_id       TEXT REFERENCES folders(id) ON DELETE CASCADE, -- NULL = rot
+    slug            TEXT UNIQUE NOT NULL,             -- slugify(name), samma kollisionsregel som album
+    name            TEXT NOT NULL,
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT NOT NULL
+);
+
 CREATE TABLE albums (
     id              TEXT PRIMARY KEY,                 -- UUID
+    folder_id       TEXT REFERENCES folders(id) ON DELETE CASCADE, -- NULL = rot
     slug            TEXT UNIQUE NOT NULL,             -- slugify(name), vid kollision + "-" + 4 slumptecken; sätts EN gång, ändras inte vid namnbyte
     name            TEXT NOT NULL,
     description     TEXT,
@@ -233,7 +243,17 @@ CREATE TABLE api_keys (
 );
 ```
 
-Ingen `storage_key`-kolumn: sökvägen härleds deterministiskt ur ID:n (se 4.5).
+`folders` motsvarar Lightrooms publicerade samlings-set (collection sets) och kan nästlas
+godtyckligt djupt via `parent_id`; en mapp innehåller aldrig bilder direkt, bara mappar och
+album. Ancestor-kedjor (brödsmulor, cykel-kontroll vid flytt) och nedärvda listor hämtas med
+rekursiva CTE:er (`WITH RECURSIVE`) mot `parent_id`/`folder_id`, inte med denormaliserade
+sökvägskolumner. Radering av en mapp kaskadar via `ON DELETE CASCADE` genom hela
+undergrenen: undermappar, deras album och albumens bilder. Mappar har inget eget lösenord —
+skydd sätts fortfarande per album.
+
+Ingen `storage_key`-kolumn: sökvägen härleds deterministiskt ur ID:n (se 4.5). Disklayouten
+är oberoende av mappträdet (alltid `photos/<album-uuid>/<photo-uuid>/...`), så en flyttad
+eller omdöpt mapp kräver ingen filflytt.
 Antal bilder och datumintervall för albumlistan räknas fram med en aggregerande fråga
 (`COUNT(*)`, `MIN/MAX(taken_at)`), ingen denormaliserad kolumn.
 
@@ -246,16 +266,27 @@ tagningstid.
 Allt under `/api/`. JSON in/ut utom bilduppladdning (multipart) och bild-/zip-hämtning
 (bytes).
 
-**Besökare (`/api/albums/...`), cookie-baserad auth för skyddade album:**
-- `GET /api/albums` → listade album (`is_listed = 1`), sorterade på senaste `taken_at`.
-  Per album: `slug`, `name`, `locked`, `photo_count`, `taken_from`, `taken_to`,
-  `cover_url`. Ingen bildlista.
+**Besökare (`/api/albums/...`, `/api/folders/...`), cookie-baserad auth för skyddade
+album:**
+- `GET /api/albums` → **roten av trädet**: `{"folders": [...], "albums": [...]}` för
+  mappar/album utan förälder. Mappar listas först, respektive lista nyast-först (mappens
+  ordning = nyaste bild i undergrenen). Per mapp: `slug`, `name`, `cover_url` (omslaget
+  från nyaste listade album i undergrenen, oavsett djup) — inga aggregerade
+  bildantal/datumintervall. En mapp visas bara om minst ett listat album finns någonstans
+  i dess undergren; direkt-URL:en fungerar ändå (jämför med olistade album). Per album:
+  `slug`, `name`, `locked`, `photo_count`, `taken_from`, `taken_to`, `cover_url`. Ingen
+  bildlista.
+- `GET /api/folders/{slug}` → `{"slug", "name", "breadcrumb": [...], "folders": [...],
+  "albums": [...]}` för den mappens barn, samma form som roten. `breadcrumb` är kedjan av
+  förfäder (rot först), tom för en mapp i roten.
 - `GET /api/albums/{slug}/cover` → omslagsbild **utan cookie-kontroll**: `thumb`
   för publika album, `blur` för låsta album. Aldrig något skarpare för låsta album.
 - `GET /api/albums/{slug}` → 200 med albuminfo + bildlista (inkl. width/height, titel,
   bildtext, tagningstid och URL:er för alla varianter, så frontend kan bygga `srcSet`)
   om publikt eller upplåst, annars `401 {"error":"password_required"}` med
-  `name`, `photo_count` så `<PasswordGate>` kan visa vad man låser upp.
+  `name`, `photo_count` så `<PasswordGate>` kan visa vad man låser upp. Båda svaren
+  innehåller `breadcrumb` (samma form som ovan) så frontend kan visa var i trädet albumet
+  ligger även bakom lösenordsgrinden.
 - `POST /api/albums/{slug}/unlock` `{password}` → sätter/uppdaterar session-cookie.
   Rate-limitas (t.ex. 5 försök/minut per IP+slug). **Samma statuskod, body och
   svarstid** för fel lösenord och icke-existerande album: kör bcrypt mot en fast
@@ -271,16 +302,24 @@ Allt under `/api/`. JSON in/ut utom bilduppladdning (multipart) och bild-/zip-h�
   disk-IO.
 
 **Lightroom-plugin (`/api/publish/...`), kräver `Authorization: Bearer <api-key>`:**
-- `POST   /api/publish/albums` `{name, description?, password?, is_listed?}` → skapar
-  album, returnerar `{id, slug, url}`.
+- `POST   /api/publish/albums` `{name, description?, password?, is_listed?, parent_id?}`
+  → skapar album, returnerar `{id, slug, url}`. `parent_id` utelämnad eller `""` = roten.
 - `PUT    /api/publish/albums/{id}` `{name?, description?, password?, is_listed?,
-  cover_photo_id?}` — `password: ""` tar bort skyddet, utelämnat fält lämnas orört.
+  cover_photo_id?, parent_id?}` — `password: ""` tar bort skyddet, utelämnat fält lämnas
+  orört, `parent_id: ""` flyttar albumet till roten.
   **Pluginet skickar lösenordet vid varje sparning av samlingsinställningar**, så
   backend måste jämföra mot befintlig hash (bcrypt) och bara skriva ny hash + öka
   `password_version` när lösenordet faktiskt ändrats. Annars loggas alla besökare ut
   varje gång man sparar inställningarna.
 - `DELETE /api/publish/albums/{id}` — när samlingen tas bort i Lightroom. Raderar
   även filerna på disk.
+- `POST   /api/publish/folders` `{name, parent_id?}` → skapar en mapp (motsvarar ett
+  publicerat samlings-set), returnerar `{id, slug, url, name}`.
+- `PUT    /api/publish/folders/{id}` `{name?, parent_id?}` — döper om och/eller flyttar
+  mappen. `400 invalid_parent` om `parent_id` är mappen själv eller en av dess
+  ättlingar (cykel-kontroll via ancestor-kedjan).
+- `DELETE /api/publish/folders/{id}` — raderar mappen och hela dess undergren
+  (undermappar, deras album, bildfilerna på disk).
 - `GET    /api/publish/albums/{id}/photos` → lista med `id`, `lr_photo_uuid`,
   `content_hash`; används av pluginet för att avstämma vad som redan finns.
 - `POST   /api/publish/albums/{id}/photos` — multipart: `file` + metadatafält
@@ -387,8 +426,10 @@ Callbacks som måste implementeras:
   i plugin-configen. Skapar album via `POST /api/publish/albums` första gången (i
   `updateCollectionSettings` eller lazy vid första publicering) och sparar backendens
   `id` med `publishedCollection:setRemoteId()` och länken med `setRemoteUrl()`.
-- `renamePublishedCollection` → `PUT /api/publish/albums/{id}` (slug ändras inte).
-- `deletePublishedCollection` → `DELETE /api/publish/albums/{id}`.
+- `renamePublishedCollection` / `deletePublishedCollection` — Lightroom anropar samma
+  callbacks för **samlings-set**. Gren på `info.publishedCollection:type()`:
+  `PUT`/`DELETE /api/publish/albums/{id}` för en samling, `PUT`/`DELETE
+  /api/publish/folders/{id}` för ett set (slug ändras aldrig).
 - `processRenderedPhotos` — för varje rendition:
   - Om `rendition.publishedPhotoId` är satt → **republish**:
     `PUT /api/publish/albums/{id}/photos/{photo_id}`. Svarar backend `404` (fotot
@@ -410,17 +451,30 @@ Callbacks som måste implementeras:
   ska flagga bilden för republicering.
 - `supportsCustomSortOrder = true` + `imposeSortOrderOnPublishedCollection` →
   `PUT /api/publish/albums/{id}/order`.
-- `getCollectionBehaviorInfo` — tillåt inte samlings-set i v1 (`canAddCollection = true`,
-  `maxCollectionSetDepth = 0`).
+- `getCollectionBehaviorInfo` — samlings-set tillåtna, godtyckligt djup
+  (`canAddCollection = true`, `maxCollectionSetDepth` satt högt, t.ex. `10` — begränsar
+  bara Lightroom-UI:t, backendens `folders`-tabell tillåter obegränsat djup).
+- **Synk av mappträdet** — inget eget callback-par för samlings-set (`Adobe` erbjuder
+  `viewForCollectionSetSettings`/`updateCollectionSetSettings`, men mappar har inga
+  egna inställningar så de implementeras inte). I stället: **stäm av vid varje
+  publicering.** `processRenderedPhotos` och `updateCollectionSettings` går, innan
+  albumet rörs, uppåt genom `collection:getParent()`-kedjan (rot först) och skapar en
+  backend-mapp (`POST /api/publish/folders`) för varje set som saknar `getRemoteId()`,
+  och sparar id:t med `setRemoteId()`/`setRemoteUrl()`. Det innersta mappens id skickas
+  sedan som albumets `parent_id`, även när albumet redan finns (en extra `PUT
+  /api/publish/albums/{id}` per publicering) — det är enda sättet att upptäcka att
+  användaren dragit samlingen till ett annat set, eftersom Lightroom inte har någon
+  flytt-callback. Samma avstämning läker även en mapp som raderats server-sidan.
 - Kommentarer/betyg: `canAddCommentsToService = false`, implementera inte
   `getCommentsFromPublishedCollection`.
 
 ### 5.3 Ej i scope för v1
 - Nedladdning/import tillbaka till Lightroom (som `lrc-immich-plugin` också har).
 - Video.
-- Samlings-set (hierarkiska album).
 - Välja omslagsbild från Lightroom (backend tar första bilden i sorteringen; kan sättas
   via `PUT .../albums/{id}` senare).
+- Lösenord på mappar/samlings-set (skydd är fortfarande bara per album).
+- Nedladdning av en hel mapp som en zip (bara album kan laddas ner).
 
 ## 6. Frontend (React)
 
@@ -434,14 +488,17 @@ Callbacks som måste implementeras:
   (samma utvecklare, integrerar rent) för själva bildvisningen. Bygg `srcSet` av
   varianterna i API-svaret; `react-photo-album` behöver `width`/`height` per bild
   och får dem från backend.
-- Routing: `/` albumlista, `/a/{slug}` albumvy. Aldrig `/api/*` i SPA-routern.
+- Routing: `/` rot (mappar + album), `/f/{slug}` mappvy, `/a/{slug}` albumvy. Aldrig
+  `/api/*` i SPA-routern. Mappens slug ändras aldrig, precis som albumets.
 
 ### 6.2 Vyer/komponenter
-- **Albumlista** — `GET /api/albums`. Kort med omslagsbild (`/cover`), namn, antal
-  bilder, datumintervall. Låsta album visar den suddiga omslagsbilden (servern
-  levererar redan suddig; lägg dessutom CSS-`blur` + låsikon ovanpå så det är tydligt).
+- **Rot/mappvy** — `GET /api/albums` respektive `GET /api/folders/{slug}`, samma
+  rutnätskomponent för båda: mappkort (bara omslag + namn, inga aggregat) före
+  albumkort, båda nyast-först. Mappvyn visar dessutom en brödsmule-rad byggd från
+  `breadcrumb`.
 - **Albumvy** — hämtar `GET /api/albums/{slug}`. Vid `401` visas `<PasswordGate>`
-  i stället för galleriet, med albumnamn och antal bilder från 401-svaret.
+  i stället för galleriet, med albumnamn och antal bilder från 401-svaret. Brödsmulan
+  från svarets `breadcrumb` visas ovanför, även bakom lösenordsgrinden.
 - **`<PasswordGate>`** — enkelt formulär, `POST /api/albums/{slug}/unlock` med
   `credentials: "include"`, refetchar albumdata vid lyckad upplåsning. Visar
   rate-limit-fel (`429`) begripligt. Cookien hanteras av webbläsaren automatiskt,
@@ -507,6 +564,12 @@ varje fas; CI kör i Docker-imagen så libvips finns.
   bort rad och katalog; `order` sätter `sort_order`; PUT med **ändrat** lösenord ökar
   `password_version`, PUT med **samma** lösenord ändrar den inte; slug-kollision ger
   suffix.
+- `api/publish` (mappar): skapa nästlad mapp, album placerat i en mapp saknas i
+  rot-listan, `PUT` som flyttar en mapp till sig själv eller en ättling → `400
+  invalid_parent`, `DELETE` på en mapp med album kaskadar (rader **och** filer borta).
+- `api/albums` + `api/folders` (träd): en mapp utan listat album någonstans i
+  undergrenen saknas i föräldrans lista men går att nå direkt på sin slug; ett album
+  djupt i trädet ger korrekt `breadcrumb` i både 200- och 401-svaret.
 - `storage`: sökvägar byggs bara av UUID + whitelist; atomisk skrivning; radering;
   gc hittar orphan-kataloger.
 - `image`: fixture-JPEG med EXIF-orientering 6 → derivat är roterade, lagrade
@@ -514,7 +577,7 @@ varje fas; CI kör i Docker-imagen så libvips finns.
   GPS-metadata; `blur` är ≤ 40 px och < 2 kB; originalet är byte-identiskt med
   uppladdningen. Testet byggs med build-tag så det
   kan hoppas över där libvips saknas, men CI kör det alltid.
-- `web`: med `FRONTEND_DIR` satt ger `/` och `/a/nagot` `index.html`, `/assets/...`
+- `web`: med `FRONTEND_DIR` satt ger `/`, `/a/nagot` och `/f/nagot` `index.html`, `/assets/...`
   rätt fil med rätt `Content-Type`; utan `FRONTEND_DIR` ger `/` 404; `/api/finns-inte`
   ger JSON-404 och aldrig `index.html`; `..`-sökvägar avvisas.
 - `healthz`: 200 med fungerande databas, 503 utan.
@@ -557,6 +620,7 @@ Inga öppna frågor kvarstår inför implementation. Följande avgjordes:
 | Router | `http.ServeMux` (Go 1.22+), ingen extern router. |
 | Migrations | `pressly/goose`. |
 | EXIF-bibliotek | Inget; pluginet skickar metadata, libvips ger dimensioner/orientering. |
+| Mappdjup (samlings-set) | Godtyckligt djupt, egen `folders`-tabell. Mapp-URL `/f/{slug}`, per-mapp-endpoint (`GET /api/folders/{slug}`), inga aggregat på mappkort (bara omslag + namn), mapp listad bara om en listad album finns i undergrenen, ingen mapp-lösenord, ingen mapp-zip. |
 
 ## 10. Föreslagen fasindelning
 

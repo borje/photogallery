@@ -3,6 +3,7 @@ import { useParams } from 'react-router'
 import { Download, Lock } from 'lucide-react'
 import { api, isApiError } from '@/api/client'
 import type { PasswordRequired } from '@/api/types'
+import Breadcrumb from '@/components/Breadcrumb'
 import Gallery from '@/components/Gallery'
 import PasswordGate from '@/components/PasswordGate'
 import NotFoundPage from '@/pages/NotFoundPage'
@@ -42,6 +43,7 @@ export default function AlbumPage() {
           slug={slug}
           name={info.name}
           count={info.photo_count}
+          breadcrumb={info.breadcrumb}
           onUnlocked={() => queryClient.invalidateQueries({ queryKey: ['album', slug] })}
         />
       )
@@ -60,6 +62,7 @@ export default function AlbumPage() {
   const dates = formatDateRange(data.taken_from, data.taken_to)
   return (
     <div className="space-y-6">
+      <Breadcrumb crumbs={data.breadcrumb} />
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="space-y-1">
           <h1 className="flex items-center gap-2 text-3xl font-semibold tracking-tight">

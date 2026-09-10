@@ -1,11 +1,11 @@
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/api/client'
-import AlbumCard from '@/components/AlbumCard'
+import ChildGrid from '@/components/ChildGrid'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Skeleton } from '@/components/ui/skeleton'
 
 export default function AlbumListPage() {
-  const { data, isPending, isError, error } = useQuery({ queryKey: ['albums'], queryFn: api.listAlbums })
+  const { data, isPending, isError, error } = useQuery({ queryKey: ['albums'], queryFn: api.listRoot })
 
   if (isPending) {
     return (
@@ -28,14 +28,5 @@ export default function AlbumListPage() {
       </Alert>
     )
   }
-  if (data.length === 0) {
-    return <p className="py-24 text-center text-muted-foreground">No albums have been published yet.</p>
-  }
-  return (
-    <div className="grid gap-x-6 gap-y-8 sm:grid-cols-2 lg:grid-cols-3">
-      {data.map((album) => (
-        <AlbumCard key={album.slug} album={album} />
-      ))}
-    </div>
-  )
+  return <ChildGrid folders={data.folders} albums={data.albums} />
 }

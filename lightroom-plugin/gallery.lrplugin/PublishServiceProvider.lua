@@ -132,7 +132,7 @@ function provider.getCollectionBehaviorInfo(publishSettings)
 		defaultCollectionName = "Album",
 		defaultCollectionCanBeDeleted = true,
 		canAddCollection = true,
-		maxCollectionSetDepth = 0, -- no nested album sets in v1
+		maxCollectionSetDepth = 10, -- album sets nest arbitrarily deep on the server; this just bounds the UI
 	}
 end
 

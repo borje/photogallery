@@ -27,8 +27,15 @@ describe('AlbumListPage', () => {
     expect(empty.querySelector('img')).toBeNull()
   })
 
+  it('renders folder cards ahead of albums, linking into the folder', async () => {
+    renderApp('/')
+    const travel = await screen.findByRole('link', { name: 'Travel' })
+    expect(travel).toHaveAttribute('href', '/f/travel')
+    expect(travel.querySelector('img')).toHaveAttribute('src', '/api/albums/iceland/cover')
+  })
+
   it('shows an empty state and errors', async () => {
-    server.use(http.get('/api/albums', () => HttpResponse.json({ albums: [] })))
+    server.use(http.get('/api/albums', () => HttpResponse.json({ folders: [], albums: [] })))
     renderApp('/')
     expect(await screen.findByText(/No albums have been published yet/)).toBeInTheDocument()
 

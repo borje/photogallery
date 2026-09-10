@@ -34,13 +34,13 @@ func TestMigrationsIdempotentAndReversible(t *testing.T) {
 		t.Fatalf("DownTo(0): %v", err)
 	}
 	var n int
-	if err := d.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('albums','photos','api_keys')`).Scan(&n); err != nil || n != 0 {
+	if err := d.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('albums','photos','api_keys','folders')`).Scan(&n); err != nil || n != 0 {
 		t.Fatalf("tables after down: n=%d err=%v", n, err)
 	}
 	if err := Migrate(ctx, d.DB); err != nil {
 		t.Fatalf("Up after Down: %v", err)
 	}
-	if err := d.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('albums','photos','api_keys')`).Scan(&n); err != nil || n != 3 {
+	if err := d.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('albums','photos','api_keys','folders')`).Scan(&n); err != nil || n != 4 {
 		t.Fatalf("tables after re-up: n=%d err=%v", n, err)
 	}
 	var fk int

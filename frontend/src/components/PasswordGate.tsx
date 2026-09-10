@@ -1,6 +1,8 @@
 import { useState, type FormEvent } from 'react'
 import { Lock } from 'lucide-react'
 import { api, isApiError } from '@/api/client'
+import type { Crumb } from '@/api/types'
+import Breadcrumb from '@/components/Breadcrumb'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -10,10 +12,11 @@ interface Props {
   slug: string
   name?: string
   count?: number
+  breadcrumb?: Crumb[]
   onUnlocked: () => void
 }
 
-export default function PasswordGate({ slug, name, count, onUnlocked }: Props) {
+export default function PasswordGate({ slug, name, count, breadcrumb, onUnlocked }: Props) {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -38,6 +41,11 @@ export default function PasswordGate({ slug, name, count, onUnlocked }: Props) {
 
   return (
     <div className="mx-auto max-w-sm py-16">
+      {breadcrumb && breadcrumb.length > 0 && (
+        <div className="mb-6 flex justify-center">
+          <Breadcrumb crumbs={breadcrumb} />
+        </div>
+      )}
       <div className="mb-6 flex flex-col items-center gap-3 text-center">
         <div className="rounded-full bg-muted p-3">
           <Lock className="size-6" aria-hidden="true" />

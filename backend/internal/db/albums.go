@@ -11,6 +11,7 @@ import (
 // Album is a published collection.
 type Album struct {
 	ID              string
+	FolderID        string // "" = root
 	Slug            string
 	Name            string
 	Description     string
@@ -34,13 +35,13 @@ type AlbumSummary struct {
 	ResolvedCover string // cover photo id after fallback to first photo, "" if empty album
 }
 
-const albumCols = `a.id, a.slug, a.name, COALESCE(a.description, ''), a.password_hash, a.password_version, a.is_listed, COALESCE(a.cover_photo_id, ''), a.created_at, a.updated_at`
+const albumCols = `a.id, COALESCE(a.folder_id, ''), a.slug, a.name, COALESCE(a.description, ''), a.password_hash, a.password_version, a.is_listed, COALESCE(a.cover_photo_id, ''), a.created_at, a.updated_at`
 
 func scanAlbum(r rowScanner) (*Album, error) {
 	var a Album
 	var created, updated string
 	var listed int
-	if err := r.Scan(&a.ID, &a.Slug, &a.Name, &a.Description, &a.PasswordHash, &a.PasswordVersion, &listed, &a.CoverPhotoID, &created, &updated); err != nil {
+	if err := r.Scan(&a.ID, &a.FolderID, &a.Slug, &a.Name, &a.Description, &a.PasswordHash, &a.PasswordVersion, &listed, &a.CoverPhotoID, &created, &updated); err != nil {
 		return nil, err
 	}
 	a.IsListed = listed != 0
@@ -51,9 +52,9 @@ func scanAlbum(r rowScanner) (*Album, error) {
 
 // CreateAlbum inserts a new album. Returns ErrSlugTaken on a slug collision.
 func (d *DB) CreateAlbum(ctx context.Context, a *Album) error {
-	_, err := d.ExecContext(ctx, `INSERT INTO albums (id, slug, name, description, password_hash, password_version, is_listed, cover_photo_id, created_at, updated_at)
-		VALUES (?, ?, ?, NULLIF(?, ''), ?, ?, ?, NULLIF(?, ''), ?, ?)`,
-		a.ID, a.Slug, a.Name, a.Description, a.PasswordHash, a.PasswordVersion, boolToInt(a.IsListed), a.CoverPhotoID, formatTime(a.CreatedAt), formatTime(a.UpdatedAt))
+	_, err := d.ExecContext(ctx, `INSERT INTO albums (id, folder_id, slug, name, description, password_hash, password_version, is_listed, cover_photo_id, created_at, updated_at)
+		VALUES (?, ?, ?, ?, NULLIF(?, ''), ?, ?, ?, NULLIF(?, ''), ?, ?)`,
+		a.ID, nullIfEmpty(a.FolderID), a.Slug, a.Name, a.Description, a.PasswordHash, a.PasswordVersion, boolToInt(a.IsListed), a.CoverPhotoID, formatTime(a.CreatedAt), formatTime(a.UpdatedAt))
 	if isUniqueViolation(err) {
 		return ErrSlugTaken
 	}
@@ -75,10 +76,11 @@ func (d *DB) GetAlbumBySlug(ctx context.Context, slug string) (*Album, error) {
 	return a, wrapNotFound(err, "get album by slug")
 }
 
-// UpdateAlbum writes all mutable columns of a. The slug is never changed.
+// UpdateAlbum writes all mutable columns of a, including which folder it
+// lives in. The slug is never changed.
 func (d *DB) UpdateAlbum(ctx context.Context, a *Album) error {
-	res, err := d.ExecContext(ctx, `UPDATE albums SET name = ?, description = NULLIF(?, ''), password_hash = ?, password_version = ?, is_listed = ?, cover_photo_id = NULLIF(?, ''), updated_at = ? WHERE id = ?`,
-		a.Name, a.Description, a.PasswordHash, a.PasswordVersion, boolToInt(a.IsListed), a.CoverPhotoID, formatTime(a.UpdatedAt), a.ID)
+	res, err := d.ExecContext(ctx, `UPDATE albums SET folder_id = ?, name = ?, description = NULLIF(?, ''), password_hash = ?, password_version = ?, is_listed = ?, cover_photo_id = NULLIF(?, ''), updated_at = ? WHERE id = ?`,
+		nullIfEmpty(a.FolderID), a.Name, a.Description, a.PasswordHash, a.PasswordVersion, boolToInt(a.IsListed), a.CoverPhotoID, formatTime(a.UpdatedAt), a.ID)
 	if err != nil {
 		return fmt.Errorf("update album: %w", err)
 	}
@@ -126,7 +128,7 @@ func scanSummary(r rowScanner) (*AlbumSummary, error) {
 	var s AlbumSummary
 	var created, updated string
 	var listed int
-	if err := r.Scan(&s.ID, &s.Slug, &s.Name, &s.Description, &s.PasswordHash, &s.PasswordVersion, &listed, &s.CoverPhotoID, &created, &updated,
+	if err := r.Scan(&s.ID, &s.FolderID, &s.Slug, &s.Name, &s.Description, &s.PasswordHash, &s.PasswordVersion, &listed, &s.CoverPhotoID, &created, &updated,
 		&s.PhotoCount, &s.TakenFrom, &s.TakenTo, &s.ResolvedCover); err != nil {
 		return nil, err
 	}

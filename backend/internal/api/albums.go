@@ -42,8 +42,14 @@ type photoJSON struct {
 	URLs     photoURLs       `json:"urls"`
 }
 
+type crumb struct {
+	Slug string `json:"slug"`
+	Name string `json:"name"`
+}
+
 type albumDetail struct {
 	albumListItem
+	Breadcrumb  []crumb     `json:"breadcrumb,omitempty"`
 	DownloadURL string      `json:"download_url"`
 	Photos      []photoJSON `json:"photos"`
 }
@@ -59,6 +65,14 @@ func listItem(sum *db.AlbumSummary) albumListItem {
 		item.CoverURL = apiAlbumPath(sum.Slug) + "/cover"
 	}
 	return item
+}
+
+func albumItems(sums []*db.AlbumSummary) []albumListItem {
+	items := make([]albumListItem, 0, len(sums))
+	for _, sum := range sums {
+		items = append(items, listItem(sum))
+	}
+	return items
 }
 
 func toPhotoJSON(slug string, p *db.Photo) photoJSON {
@@ -96,19 +110,20 @@ func (s *Server) summaryFromPath(w http.ResponseWriter, r *http.Request) (*db.Al
 	return sum, true
 }
 
-// GET /api/albums
+// GET /api/albums — the root of the tree: folders and albums with no parent.
 func (s *Server) listAlbums(w http.ResponseWriter, r *http.Request) {
-	sums, err := s.db.ListAlbumSummaries(r.Context(), true)
+	folders, err := s.db.ListChildFolders(r.Context(), "")
 	if err != nil {
 		s.internalError(w, r, err)
 		return
 	}
-	items := make([]albumListItem, 0, len(sums))
-	for _, sum := range sums {
-		items = append(items, listItem(sum))
+	sums, err := s.db.ListAlbumSummariesIn(r.Context(), "", true)
+	if err != nil {
+		s.internalError(w, r, err)
+		return
 	}
 	w.Header().Set("Cache-Control", "no-cache")
-	writeJSON(w, http.StatusOK, map[string]any{"albums": items})
+	writeJSON(w, http.StatusOK, map[string]any{"folders": folderItems(folders), "albums": albumItems(sums)})
 }
 
 // GET /api/albums/{slug}
@@ -117,8 +132,13 @@ func (s *Server) getAlbum(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	crumbs, err := s.folderBreadcrumb(r, sum.FolderID)
+	if err != nil {
+		s.internalError(w, r, err)
+		return
+	}
 	if !s.albumAccess(r, &sum.Album) {
-		passwordRequired(w, sum)
+		passwordRequired(w, sum, crumbs)
 		return
 	}
 	photos, err := s.db.ListPhotos(r.Context(), sum.ID)
@@ -126,7 +146,7 @@ func (s *Server) getAlbum(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, r, err)
 		return
 	}
-	out := albumDetail{albumListItem: listItem(sum), DownloadURL: apiAlbumPath(sum.Slug) + "/download", Photos: make([]photoJSON, 0, len(photos))}
+	out := albumDetail{albumListItem: listItem(sum), Breadcrumb: crumbs, DownloadURL: apiAlbumPath(sum.Slug) + "/download", Photos: make([]photoJSON, 0, len(photos))}
 	for _, p := range photos {
 		out.Photos = append(out.Photos, toPhotoJSON(sum.Slug, p))
 	}

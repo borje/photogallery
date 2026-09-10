@@ -17,9 +17,10 @@ local Util = require "Util"
 
 local PublishTask = {}
 
--- Album fields sent to the backend, from the collection name and the
--- per-collection settings (password, listed, description).
-function PublishTask.albumFields(name, collectionSettings)
+-- Album fields sent to the backend, from the collection name, the
+-- per-collection settings (password, listed, description) and the backend
+-- folder id of the containing album set ("" for the root).
+function PublishTask.albumFields(name, collectionSettings, parentId)
 	collectionSettings = collectionSettings or {}
 	local fields = { name = name }
 	fields.password = collectionSettings.password or ""
@@ -29,7 +30,42 @@ function PublishTask.albumFields(name, collectionSettings)
 		fields.is_listed = collectionSettings.isListed and true or false
 	end
 	fields.description = collectionSettings.description or ""
+	fields.parent_id = parentId or ""
 	return fields
+end
+
+-- Walks the chain of published collection sets containing `collection`,
+-- root first, creating a backend folder for any set that doesn't have one
+-- yet and recording its id on the set. Returns ok, and either the innermost
+-- folder id ("" at the root) or an error message.
+function PublishTask.resolveParent(api, collection)
+	if not collection then
+		return true, nil
+	end
+	local chain = {}
+	local set = collection:getParent()
+	while set do
+		table.insert(chain, 1, set) -- root-first
+		set = set:getParent()
+	end
+	local parentId = nil
+	for _, s in ipairs(chain) do
+		local id = s:getRemoteId()
+		if not id then
+			local ok, folder = api:createFolder({ name = s:getName(), parent_id = parentId })
+			if not ok then
+				return false, folder
+			end
+			id = folder.id
+			LrApplication.activeCatalog():withWriteAccessDo("Photo Gallery: store album set id", function()
+				s:setRemoteId(id)
+				s:setRemoteUrl(folder.url)
+			end)
+			log:infof("created album set %s (%s)", id, folder.url)
+		end
+		parentId = id
+	end
+	return true, parentId
 end
 
 local exifKeys = {
@@ -116,8 +152,14 @@ function PublishTask.processRenderedPhotos(functionContext, exportContext)
 		functionContext = functionContext,
 	})
 
+	local parentOk, parentId = PublishTask.resolveParent(api, publishedCollection)
+	if not parentOk then
+		progress:done()
+		stopWithError("Photo Gallery: " .. tostring(parentId))
+	end
+
 	local function createAlbum()
-		local ok, album = api:createAlbum(PublishTask.albumFields(albumName, collectionSettings))
+		local ok, album = api:createAlbum(PublishTask.albumFields(albumName, collectionSettings, parentId))
 		if not ok then
 			progress:done()
 			stopWithError("Photo Gallery: " .. tostring(album))
@@ -130,6 +172,13 @@ function PublishTask.processRenderedPhotos(functionContext, exportContext)
 
 	if not albumId then
 		albumId = createAlbum()
+	else
+		-- Reconcile in case the collection was dragged into a different set
+		-- since the last publish; Lightroom fires no callback for that.
+		local ok, result = api:updateAlbum(albumId, { parent_id = parentId or "" })
+		if not ok then
+			log:warnf("update album set: %s", tostring(result))
+		end
 	end
 
 	local failures = {}
@@ -248,7 +297,12 @@ function PublishTask.updateCollectionSettings(publishSettings, info)
 	if not api:isConfigured() then
 		return
 	end
-	local fields = PublishTask.albumFields(info.name, info.collectionSettings)
+	local parentOk, parentId = PublishTask.resolveParent(api, info.publishedCollection)
+	if not parentOk then
+		LrDialogs.message("Photo Gallery: could not resolve album set on server", tostring(parentId), "warning")
+		return
+	end
+	local fields = PublishTask.albumFields(info.name, info.collectionSettings, parentId)
 	if info.remoteId then
 		local ok, result = api:updateAlbum(info.remoteId, fields)
 		if not ok then
@@ -272,14 +326,25 @@ function PublishTask.updateCollectionSettings(publishSettings, info)
 	end
 end
 
+-- Lightroom calls rename/delete for both published collections and
+-- published collection sets; branch on which one this is.
+local function isCollectionSet(info)
+	return info.publishedCollection ~= nil and info.publishedCollection:type() == "LrPublishedCollectionSet"
+end
+
 function PublishTask.renamePublishedCollection(publishSettings, info)
 	if not info.remoteId then
 		return
 	end
 	local api = GalleryAPI.new(publishSettings.serverUrl, publishSettings.apiKey)
-	local ok, result = api:updateAlbum(info.remoteId, { name = info.name })
+	local ok, result
+	if isCollectionSet(info) then
+		ok, result = api:updateFolder(info.remoteId, { name = info.name })
+	else
+		ok, result = api:updateAlbum(info.remoteId, { name = info.name })
+	end
 	if not ok then
-		LrDialogs.message("Photo Gallery: album not renamed on server", tostring(result), "warning")
+		LrDialogs.message("Photo Gallery: not renamed on server", tostring(result), "warning")
 	end
 end
 
@@ -288,9 +353,14 @@ function PublishTask.deletePublishedCollection(publishSettings, info)
 		return
 	end
 	local api = GalleryAPI.new(publishSettings.serverUrl, publishSettings.apiKey)
-	local ok, result, status = api:deleteAlbum(info.remoteId)
+	local ok, result, status
+	if isCollectionSet(info) then
+		ok, result, status = api:deleteFolder(info.remoteId)
+	else
+		ok, result, status = api:deleteAlbum(info.remoteId)
+	end
 	if not ok and status ~= 404 then
-		LrDialogs.message("Photo Gallery: album not deleted on server", tostring(result), "warning")
+		LrDialogs.message("Photo Gallery: not deleted on server", tostring(result), "warning")
 	end
 end
 

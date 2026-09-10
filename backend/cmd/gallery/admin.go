@@ -110,12 +110,51 @@ func listAlbums(ctx context.Context, database *db.DB) error {
 	if err != nil {
 		return err
 	}
+	folders, err := database.ListAllFolders(ctx)
+	if err != nil {
+		return err
+	}
+	paths := folderPaths(folders)
 	tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(tw, "ID\tSLUG\tNAME\tPHOTOS\tPROTECTED\tLISTED\tUPDATED")
+	fmt.Fprintln(tw, "ID\tSLUG\tPATH\tNAME\tPHOTOS\tPROTECTED\tLISTED\tUPDATED")
 	for _, a := range albums {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%v\t%v\t%s\n", a.ID, a.Slug, a.Name, a.PhotoCount, a.Protected(), a.IsListed, a.UpdatedAt.Format(time.RFC3339))
+		path := "/"
+		if a.FolderID != "" {
+			path = paths[a.FolderID]
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%d\t%v\t%v\t%s\n", a.ID, a.Slug, path, a.Name, a.PhotoCount, a.Protected(), a.IsListed, a.UpdatedAt.Format(time.RFC3339))
 	}
 	return tw.Flush()
+}
+
+// folderPaths maps each folder id to its slash-separated path from the
+// root, e.g. "/travel/2024".
+func folderPaths(folders []*db.Folder) map[string]string {
+	byID := make(map[string]*db.Folder, len(folders))
+	for _, f := range folders {
+		byID[f.ID] = f
+	}
+	paths := make(map[string]string, len(folders))
+	var resolve func(id string) string
+	resolve = func(id string) string {
+		if id == "" {
+			return ""
+		}
+		if p, ok := paths[id]; ok {
+			return p
+		}
+		f := byID[id]
+		if f == nil {
+			return ""
+		}
+		p := resolve(f.ParentID) + "/" + f.Slug
+		paths[id] = p
+		return p
+	}
+	for _, f := range folders {
+		resolve(f.ID)
+	}
+	return paths
 }
 
 func setPassword(ctx context.Context, database *db.DB, args []string) error {
