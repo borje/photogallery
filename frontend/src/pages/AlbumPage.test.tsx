@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { server } from '@/test/server'
 import { unlocked } from '@/test/handlers'
@@ -33,6 +33,39 @@ describe('AlbumPage', () => {
     expect(smallSet).toContain('small 533w')
     expect(smallSet).toContain('medium 600w')
     expect(smallSet).not.toContain('large')
+  })
+
+  it('keeps the lightbox in sync with ?photo= so the URL is shareable', async () => {
+    const user = userEvent.setup()
+    renderApp('/a/summer-2026?photo=p2')
+
+    // Deep link opens the lightbox on that photo (the page behind it is inert).
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByText('2 / 2')).toBeInTheDocument()
+
+    // Closing drops the parameter (replace, not push).
+    await user.click(screen.getByRole('button', { name: 'Close' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(screen.getByTestId('location')).toHaveTextContent('/a/summer-2026')
+
+    // Clicking a photo pushes ?photo=<id> ...
+    await user.click(screen.getByRole('img', { name: 'Sunrise' }))
+    await screen.findByRole('dialog')
+    expect(screen.getByTestId('location')).toHaveTextContent('/a/summer-2026?photo=p1')
+
+    // ... and moving to the next slide follows along.
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('/a/summer-2026?photo=p2'))
+  })
+
+  it('shares a link to the current photo, copying it when the share sheet is unavailable', async () => {
+    const user = userEvent.setup()
+    renderApp('/a/summer-2026?photo=p1')
+    await screen.findByRole('dialog')
+
+    await user.click(screen.getByRole('button', { name: 'Share' }))
+    expect(await navigator.clipboard.readText()).toBe('http://localhost:3000/?photo=p1')
+    expect(await screen.findByRole('button', { name: 'Link copied' })).toBeInTheDocument()
   })
 
   it('shows the password gate for a locked album and unlocks it', async () => {

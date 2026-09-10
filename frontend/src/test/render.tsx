@@ -1,8 +1,16 @@
+// oxlint-disable react/only-export-components -- test helpers, not hot-reloaded
+
 import type { ReactElement } from 'react'
 import { render } from '@testing-library/react'
-import { MemoryRouter, Route, Routes } from 'react-router'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import App from '@/App'
+
+/** Exposes the router location so tests can assert on URL state. */
+function LocationProbe() {
+  const { pathname, search } = useLocation()
+  return <output data-testid="location">{pathname + search}</output>
+}
 
 /** Renders the whole app at a route with a fresh, non-retrying query client. */
 export function renderApp(path: string) {
@@ -11,6 +19,7 @@ export function renderApp(path: string) {
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={[path]}>
         <App />
+        <LocationProbe />
       </MemoryRouter>
     </QueryClientProvider>,
   )

@@ -12,3 +12,21 @@
   outline-offset: 2px;
   border-radius: var(--radius-sm);
 }
+
+/* Lightbox chrome follows the theme. */
+.yarl__thumbnails_container {
+  background: transparent;
+}
+.yarl__thumbnails_thumbnail {
+  border-radius: var(--radius-sm);
+  opacity: 0.55;
+  transition: opacity 150ms ease;
+}
+.yarl__thumbnails_thumbnail:hover,
+.yarl__thumbnails_thumbnail_active {
+  opacity: 1;
+}
+.yarl__counter {
+  font-size: 0.8rem;
+  opacity: 0.75;
+}
