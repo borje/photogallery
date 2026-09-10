@@ -1,0 +1,10 @@
+# data and build output
+/data/
+/backend/data/
+/frontend/dist/
+/frontend/node_modules/
+/deploy/.env
+
+# editor / OS
+.DS_Store
+*.swp
