@@ -1,8 +1,21 @@
 # syntax=docker/dockerfile:1
-# Build from the repository root: docker build -f deploy/Dockerfile .
+# Build from the repository root:
+#   docker build -f deploy/Dockerfile -t gallery .
+# On hosts with little RAM keep GOFLAGS=-p=1 (modernc.org/libc is memory
+# hungry to compile); CI with more memory can pass --build-arg GOFLAGS=.
+
+# --- Frontend ---------------------------------------------------------------
+FROM node:22-slim AS frontend
+WORKDIR /src/frontend
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY frontend/ ./
+RUN npm run build
 
 # --- Go backend -------------------------------------------------------------
 FROM golang:1.26-trixie AS backend
+ARG GOFLAGS=-p=1
+ENV GOFLAGS=${GOFLAGS}
 RUN apt-get update && apt-get install -y --no-install-recommends libvips-dev pkg-config \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /src/backend
@@ -18,6 +31,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends libvips42t64 ca
     && useradd --uid 10001 --user-group --home-dir /data --no-create-home gallery \
     && mkdir -p /data /srv/frontend && chown gallery:gallery /data
 COPY --from=backend /out/gallery /usr/local/bin/gallery
+COPY --from=frontend /src/frontend/dist/ /srv/frontend/
 ENV DATA_DIR=/data \
     FRONTEND_DIR=/srv/frontend \
     LISTEN_ADDR=:8080 \

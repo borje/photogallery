@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"syscall"
 	"text/tabwriter"
 	"time"
@@ -191,6 +192,7 @@ func gc(ctx context.Context, database *db.DB, store *storage.Store, args []strin
 		fmt.Println("nothing to clean")
 		return nil
 	}
+	photosRoot := filepath.Join(store.Root(), "photos")
 	for _, p := range targets {
 		if *dryRun {
 			fmt.Println("would remove", p)
@@ -200,6 +202,10 @@ func gc(ctx context.Context, database *db.DB, store *storage.Store, args []strin
 			return fmt.Errorf("remove %s: %w", p, err)
 		}
 		fmt.Println("removed", p)
+		// Drop the album directory too once its last photo is gone.
+		if parent := filepath.Dir(p); parent != photosRoot && filepath.Dir(parent) == photosRoot {
+			_ = os.Remove(parent) // only succeeds when empty
+		}
 	}
 	if !*dryRun {
 		fmt.Printf("removed %d entr%s\n", len(targets), plural(len(targets), "y", "ies"))

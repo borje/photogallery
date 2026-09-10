@@ -1,0 +1,31 @@
+# Copy .env.example to .env next to this file and set SESSION_SECRET and
+# PUBLIC_BASE_URL before starting:  docker compose up -d --build
+#
+# Traefik (or another TLS-terminating proxy) is expected in front of the
+# container and is not configured here. Remember to raise its response
+# timeouts for multi-gigabyte zip downloads and set TRUSTED_PROXY_CIDR to the
+# proxy's network so rate limiting sees real client IPs.
+services:
+  gallery:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: gallery:latest
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      DATA_DIR: /data
+      FRONTEND_DIR: /srv/frontend
+      LISTEN_ADDR: ":8080"
+      LOG_FORMAT: json
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET in .env}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8080}
+      TRUSTED_PROXY_CIDR: ${TRUSTED_PROXY_CIDR:-}
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-100}
+    volumes:
+      - gallery-data:/data
+
+volumes:
+  gallery-data:
