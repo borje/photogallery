@@ -292,7 +292,21 @@ end
 -- Called after the collection settings dialog is confirmed. Sends name,
 -- password, listing and description; the backend only bumps the password
 -- version when the password actually changed.
+--
+-- Not published yet (no remoteId): do nothing here. Lightroom discards any
+-- remoteId we record from within this callback for a collection that has
+-- never been published, so creating the album here would just leave it
+-- orphaned and repeat on every settings save. The first publish creates the
+-- album with these collectionSettings already applied.
+--
+-- Read the remoteId straight from the collection object rather than
+-- info.remoteId: in practice info.remoteId is not reliably populated here,
+-- even for collections that have already been published.
 function PublishTask.updateCollectionSettings(publishSettings, info)
+	local remoteId = info.publishedCollection and info.publishedCollection:getRemoteId()
+	if not remoteId then
+		return
+	end
 	local api = GalleryAPI.new(publishSettings.serverUrl, publishSettings.apiKey)
 	if not api:isConfigured() then
 		return
@@ -303,26 +317,9 @@ function PublishTask.updateCollectionSettings(publishSettings, info)
 		return
 	end
 	local fields = PublishTask.albumFields(info.name, info.collectionSettings, parentId)
-	if info.remoteId then
-		local ok, result = api:updateAlbum(info.remoteId, fields)
-		if not ok then
-			LrDialogs.message("Photo Gallery: album settings not saved on server", tostring(result), "warning")
-		end
-		return
-	end
-	-- Not published yet. With a collection object we can create the album
-	-- now; otherwise the first publish creates it.
-	if info.publishedCollection then
-		local ok, album = api:createAlbum(fields)
-		if not ok then
-			LrDialogs.message("Photo Gallery: could not create album", tostring(album), "warning")
-			return
-		end
-		log:infof("created album %s from collection settings", album.id)
-		LrApplication.activeCatalog():withWriteAccessDo("Photo Gallery: store album id", function()
-			info.publishedCollection:setRemoteId(album.id)
-			info.publishedCollection:setRemoteUrl(album.url)
-		end)
+	local ok, result = api:updateAlbum(remoteId, fields)
+	if not ok then
+		LrDialogs.message("Photo Gallery: album settings not saved on server", tostring(result), "warning")
 	end
 end
 
