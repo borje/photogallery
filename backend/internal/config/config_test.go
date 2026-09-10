@@ -14,7 +14,7 @@ func TestDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.ListenAddr != ":8080" || c.DataDir != "./data" || c.MaxUploadBytes != 100<<20 || c.LogLevel != "info" || c.LogFormat != "text" || c.PublicBaseURL != "http://localhost:8080" || len(c.TrustedProxies) != 0 {
+	if c.ListenAddr != ":8080" || c.DataDir != "./data" || c.MaxUploadBytes != 100<<20 || c.LogLevel != "info" || c.LogFormat != "text" || c.PublicBaseURL != "http://localhost:8080" || c.SiteTitle != "Photo Gallery" || len(c.TrustedProxies) != 0 {
 		t.Fatalf("defaults: %+v", c)
 	}
 }
@@ -22,6 +22,7 @@ func TestDefaults(t *testing.T) {
 func TestParsing(t *testing.T) {
 	c, err := FromEnv(envOf(map[string]string{
 		"PUBLIC_BASE_URL":    "https://photos.example/",
+		"SITE_TITLE":         "The Granberg Archive",
 		"MAX_UPLOAD_MB":      "5",
 		"TRUSTED_PROXY_CIDR": "10.0.0.0/8, 172.18.0.5",
 		"LOG_FORMAT":         "JSON",
@@ -29,7 +30,7 @@ func TestParsing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.PublicBaseURL != "https://photos.example" || c.MaxUploadBytes != 5<<20 || c.LogFormat != "json" {
+	if c.PublicBaseURL != "https://photos.example" || c.SiteTitle != "The Granberg Archive" || c.MaxUploadBytes != 5<<20 || c.LogFormat != "json" {
 		t.Fatalf("parsed: %+v", c)
 	}
 	if len(c.TrustedProxies) != 2 || c.TrustedProxies[0] != netip.MustParsePrefix("10.0.0.0/8") || c.TrustedProxies[1] != netip.MustParsePrefix("172.18.0.5/32") {

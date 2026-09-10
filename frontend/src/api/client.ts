@@ -1,4 +1,4 @@
-import type { AlbumDetail, FolderDetail, RootListing } from './types'
+import type { AlbumDetail, FolderDetail, RootListing, SiteConfig } from './types'
 
 /** Non-2xx response. `code` is the backend's snake_case error code. */
 export class ApiError extends Error {
@@ -55,6 +55,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 }
 
 export const api = {
+  getSiteConfig: (): Promise<SiteConfig> => request<SiteConfig>('/api/site'),
   listRoot: (): Promise<RootListing> => request<RootListing>('/api/albums'),
   getFolder: (slug: string): Promise<FolderDetail> =>
     request<FolderDetail>(`/api/folders/${encodeURIComponent(slug)}`),

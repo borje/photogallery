@@ -134,6 +134,7 @@ func (s *Server) routes(mux *http.ServeMux) {
 
 	// Visitor endpoints. Image bytes and zips are not wrapped in a timeout.
 	visitorJSON := func(h http.HandlerFunc) http.Handler { return http.TimeoutHandler(h, jsonTimeout, timeoutBody) }
+	mux.Handle("GET /api/site", visitorJSON(s.siteConfig))
 	mux.Handle("GET /api/albums", visitorJSON(s.listAlbums))
 	mux.Handle("GET /api/albums/{slug}", visitorJSON(s.getAlbum))
 	mux.Handle("POST /api/albums/{slug}/unlock", visitorJSON(s.unlockAlbum))

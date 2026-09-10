@@ -171,6 +171,19 @@ func (e *env) uploadPhoto(albumID, lrUUID, filename string, file []byte, extra m
 	return out.ID, rec.Code
 }
 
+func TestSiteConfig(t *testing.T) {
+	e := newEnv(t)
+	e.srv.cfg.SiteTitle = "The Granberg Archive"
+	rec := e.request(http.MethodGet, "/api/site", nil, "", "")
+	var out struct {
+		Title string `json:"title"`
+	}
+	decode(t, rec, &out)
+	if rec.Code != 200 || out.Title != "The Granberg Archive" {
+		t.Fatalf("site config: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestHealthzAndAPINotFound(t *testing.T) {
 	e := newEnv(t)
 	rec := e.request(http.MethodGet, "/api/healthz", nil, "", "")

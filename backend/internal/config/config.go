@@ -16,6 +16,7 @@ type Config struct {
 	DataDir        string
 	FrontendDir    string
 	PublicBaseURL  string
+	SiteTitle      string
 	TrustedProxies []netip.Prefix
 	MaxUploadBytes int64
 	LogLevel       string
@@ -35,6 +36,7 @@ func FromEnv(getenv func(string) string) (Config, error) {
 		DataDir:       get("DATA_DIR", "./data"),
 		FrontendDir:   get("FRONTEND_DIR", ""),
 		PublicBaseURL: strings.TrimRight(get("PUBLIC_BASE_URL", "http://localhost:8080"), "/"),
+		SiteTitle:     get("SITE_TITLE", "Photo Gallery"),
 		LogLevel:      strings.ToLower(get("LOG_LEVEL", "info")),
 		LogFormat:     strings.ToLower(get("LOG_FORMAT", "text")),
 	}
