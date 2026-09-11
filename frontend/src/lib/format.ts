@@ -27,3 +27,17 @@ export function formatDateRange(from?: string, to?: string): string {
 export function photoCount(n: number): string {
   return n === 1 ? '1 photo' : `${n} photos`
 }
+
+const dateTimeFormat = new Intl.DateTimeFormat(undefined, {
+  year: 'numeric',
+  month: 'short',
+  day: 'numeric',
+  hour: 'numeric',
+  minute: '2-digit',
+})
+
+/** "1 Jul 2026, 10:11" — capture time as Lightroom recorded it. */
+export function formatDateTime(value?: string): string {
+  const d = parseTakenAt(value)
+  return d ? dateTimeFormat.format(d) : ''
+}

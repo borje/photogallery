@@ -1,6 +1,6 @@
 import { photo } from '@/test/fixtures'
-import { buildSrcSet, exifSummary, toSlide } from './photos'
-import { formatDateRange, parseTakenAt, photoCount } from './format'
+import { buildSrcSet, photoDetails, toSlide } from './photos'
+import { formatDateRange, formatDateTime, parseTakenAt, photoCount } from './format'
 
 describe('buildSrcSet', () => {
   it('lists every generated size for a large landscape original', () => {
@@ -48,10 +48,35 @@ describe('formatting', () => {
     expect(photoCount(1)).toBe('1 photo')
     expect(photoCount(12)).toBe('12 photos')
   })
-  it('summarises exif', () => {
-    expect(exifSummary({ make: 'Canon', model: 'EOS R5', exposure: '1/250 sec at f/2.8', iso: 'ISO 100' })).toBe(
-      'Canon EOS R5 · 1/250 sec at f/2.8 · ISO 100',
+})
+
+describe('photoDetails', () => {
+  it('lists the capture time, camera, lens and Lightroom filename in order, skipping unknown fields', () => {
+    const rows = photoDetails(
+      photo('a', 'x', {
+        filename: 'IMG_0001.jpg',
+        width: 6000,
+        height: 4000,
+        taken_at: '2026-07-01T10:11:00',
+        exif: { make: 'Canon', model: 'EOS R5', lens: 'RF 50mm', focal_length: '50 mm', exposure: '1/250 sec at f/2.8', iso: 'ISO 100' },
+      }),
     )
-    expect(exifSummary(undefined)).toBe('')
+    expect(rows).toEqual([
+      { label: 'Taken', value: formatDateTime('2026-07-01T10:11:00') },
+      { label: 'Camera', value: 'Canon EOS R5' },
+      { label: 'Lens', value: 'RF 50mm' },
+      { label: 'Focal length', value: '50 mm' },
+      { label: 'Exposure', value: '1/250 sec at f/2.8' },
+      { label: 'ISO', value: 'ISO 100' },
+      { label: 'Dimensions', value: '6000 × 4000' },
+      { label: 'Filename', value: 'IMG_0001.jpg' },
+    ])
+    expect(formatDateTime('2026-07-01T10:11:00')).toMatch(/2026.*10:11/)
+  })
+
+  it('builds the exposure from shutter and aperture when Lightroom sent no combined value', () => {
+    const rows = photoDetails(photo('a', 'x', { exif: { shutter_speed: '1/60 sec', aperture: 'f/4.0' } }))
+    expect(rows).toContainEqual({ label: 'Exposure', value: '1/60 sec at f/4.0' })
+    expect(rows.map((r) => r.label)).toEqual(['Exposure', 'Dimensions', 'Filename'])
   })
 })

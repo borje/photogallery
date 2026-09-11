@@ -80,6 +80,36 @@ describe('AlbumPage', () => {
     expect(await screen.findByRole('button', { name: 'Link copied' })).toBeInTheDocument()
   })
 
+  it('toggles a details panel with the capture time, lens and Lightroom filename', async () => {
+    const user = userEvent.setup()
+    renderApp('/a/summer-2026?photo=p1')
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).queryByRole('complementary', { name: 'Photo details' })).not.toBeInTheDocument()
+
+    await user.click(within(dialog).getByRole('button', { name: 'Show info' }))
+    const panel = within(dialog).getByRole('complementary', { name: 'Photo details' })
+    expect(within(panel).getByRole('heading', { name: 'Sunrise' })).toBeInTheDocument()
+    expect(within(panel).getByText('First morning')).toBeInTheDocument()
+    expect(within(panel).getByText('Taken').nextElementSibling).toHaveTextContent(/2026/)
+    expect(within(panel).getByText('Lens').nextElementSibling).toHaveTextContent('RF 50mm F1.2 L USM')
+    expect(within(panel).getByText('Focal length').nextElementSibling).toHaveTextContent('50 mm')
+    expect(within(panel).getByText('Filename').nextElementSibling).toHaveTextContent('IMG_0001.jpg')
+    expect(within(panel).getByRole('list', { name: 'Keywords' })).toHaveTextContent('seamorning')
+
+    // The panel follows the current slide and stays open while browsing.
+    await user.click(within(dialog).getByRole('button', { name: 'Next' }))
+    await waitFor(() =>
+      expect(within(panel).getByText('Filename').nextElementSibling).toHaveTextContent('p2.jpg'),
+    )
+    expect(within(panel).queryByText('Lens')).not.toBeInTheDocument()
+
+    // "i" closes it again.
+    await user.keyboard('i')
+    await waitFor(() =>
+      expect(within(dialog).queryByRole('complementary', { name: 'Photo details' })).not.toBeInTheDocument(),
+    )
+  })
+
   it('shows the password gate for a locked album and unlocks it', async () => {
     const user = userEvent.setup()
     let credentials: RequestCredentials | undefined

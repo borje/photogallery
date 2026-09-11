@@ -52,7 +52,23 @@ export const summerDetail: AlbumDetail = {
   cover_photo_id: 'p2',
   download_url: '/api/albums/summer-2026/download',
   photos: [
-    photo('summer-2026', 'p1', { title: 'Sunrise', caption: 'First morning', taken_at: '2026-07-01T10:00:00', exif: { make: 'Canon', model: 'EOS R5', exposure: '1/250 sec at f/2.8', iso: 'ISO 100' } }),
+    photo('summer-2026', 'p1', {
+      filename: 'IMG_0001.jpg',
+      title: 'Sunrise',
+      caption: 'First morning',
+      keywords: ['sea', 'morning'],
+      taken_at: '2026-07-01T10:00:00',
+      exif: {
+        make: 'Canon',
+        model: 'EOS R5',
+        lens: 'RF 50mm F1.2 L USM',
+        focal_length: '50 mm',
+        exposure: '1/250 sec at f/2.8',
+        aperture: 'f/2.8',
+        shutter_speed: '1/250 sec',
+        iso: 'ISO 100',
+      },
+    }),
     photo('summer-2026', 'p2', { width: 600, height: 900 }),
   ],
 }

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { RowsPhotoAlbum } from 'react-photo-album'
 import 'react-photo-album/rows.css'
@@ -16,18 +16,12 @@ import 'yet-another-react-lightbox/plugins/captions.css'
 import 'yet-another-react-lightbox/plugins/counter.css'
 import 'yet-another-react-lightbox/plugins/thumbnails.css'
 import type { Photo } from '@/api/types'
-import { formatDate } from '@/lib/format'
-import { exifSummary, toGalleryPhoto, toSlide } from '@/lib/photos'
+import { InfoButton, InfoPanel } from '@/components/PhotoInfo'
+import { toGalleryPhoto, toSlide } from '@/lib/photos'
 
+/** Only the caption is overlaid on the photo; date and camera data are in the info panel. */
 function slideDescription(photo: Photo) {
-  const meta = [formatDate(photo.taken_at), exifSummary(photo.exif)].filter(Boolean).join(' · ')
-  if (!photo.caption && !meta) return undefined
-  return (
-    <>
-      {photo.caption && <div>{photo.caption}</div>}
-      {meta && <div className="text-xs opacity-75">{meta}</div>}
-    </>
-  )
+  return photo.caption || undefined
 }
 
 /** Link to the current page with `?photo=<id>`, i.e. what the lightbox itself syncs to. */
@@ -82,11 +76,14 @@ function ShareButton({ photos }: { photos: Photo[] }) {
 
 export default function Gallery({ photos }: { photos: Photo[] }) {
   const [searchParams, setSearchParams] = useSearchParams()
+  // The info panel stays open while arrowing through slides; it only closes
+  // on demand or with the lightbox.
+  const [infoOpen, setInfoOpen] = useState(false)
+  const toggleInfo = useCallback((open: boolean) => setInfoOpen(open), [])
   const items = useMemo(() => photos.map(toGalleryPhoto), [photos])
-  const slides = useMemo(
-    () => photos.map((p) => ({ ...toSlide(p), title: p.title, description: slideDescription(p) })),
-    [photos],
-  )
+  // No slide title: the Captions plugin would draw it as a bar across the top.
+  // The title lives in the info panel (and in the image alt) instead.
+  const slides = useMemo(() => photos.map((p) => ({ ...toSlide(p), description: slideDescription(p) })), [photos])
 
   // `?photo=<id>` is the lightbox state: the link Lightroom records per photo
   // opens it, opening pushes a history entry (so Back closes it), and arrowing
@@ -122,6 +119,7 @@ export default function Gallery({ photos }: { photos: Photo[] }) {
         slides={slides}
         close={() => {
           ;(document.activeElement as HTMLElement | null)?.blur()
+          setInfoOpen(false)
           setPhoto(null, true)
         }}
         on={{
@@ -130,9 +128,18 @@ export default function Gallery({ photos }: { photos: Photo[] }) {
           },
         }}
         plugins={[Captions, Counter, Fullscreen, Slideshow, Thumbnails, Zoom, Download]}
-        toolbar={{ buttons: [<ShareButton key="share" photos={photos} />, 'close'] }}
+        toolbar={{
+          buttons: [
+            <InfoButton key="info" open={infoOpen} onToggle={toggleInfo} />,
+            <ShareButton key="share" photos={photos} />,
+            'close',
+          ],
+        }}
+        render={{ controls: () => <InfoPanel photos={photos} open={infoOpen} onToggle={toggleInfo} /> }}
+        // Gallery.css turns this flag into container padding so the slide
+        // shrinks beside (or above) the panel instead of being covered.
+        styles={{ container: { '--yarl__sb_info': infoOpen ? 1 : 0 } }}
         captions={{ descriptionTextAlign: 'center', descriptionMaxLines: 4 }}
-        counter={{ container: { style: { top: 'unset', bottom: 0 } } }}
         slideshow={{ delay: 4000 }}
         thumbnails={{ width: 96, height: 64, border: 0, gap: 8, padding: 0, imageFit: 'cover' }}
         zoom={{ maxZoomPixelRatio: 2 }}
