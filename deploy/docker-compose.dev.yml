@@ -1,0 +1,52 @@
+# Frontend development: Vite dev server with hot module reload in front of the
+# Go backend, both in containers. Run from this directory:
+#
+#   docker compose -f docker-compose.dev.yml up --build
+#
+# Then open http://localhost:5173. Edits under ../frontend/src reload in the
+# browser immediately; /api/* is proxied to the backend container. The backend
+# image is only rebuilt when you pass --build. Create an API key for the
+# Lightroom plug-in with:
+#
+#   docker compose -f docker-compose.dev.yml exec backend gallery admin create-api-key --label dev
+#
+# Backend data lives in the gallery-dev-data volume, separate from production.
+services:
+  frontend:
+    image: node:22-slim
+    working_dir: /app
+    # npm install is a no-op when node_modules already matches package-lock.json.
+    command: sh -c "npm install --no-audit --no-fund && npm run dev"
+    ports:
+      - "5173:5173"
+    environment:
+      API_PROXY_TARGET: http://backend:8080
+    volumes:
+      - ../frontend:/app
+      # Keep the container's node_modules out of the host checkout so host and
+      # container installs do not overwrite each other.
+      - frontend-node-modules:/app/node_modules
+    depends_on:
+      - backend
+
+  backend:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: gallery:dev
+    ports:
+      - "8080:8080"
+    environment:
+      DATA_DIR: /data
+      FRONTEND_DIR: /srv/frontend
+      LOG_FORMAT: text
+      LOG_LEVEL: ${LOG_LEVEL:-debug}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:5173}
+      SITE_TITLE: ${SITE_TITLE:-Photo Gallery (dev)}
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-100}
+    volumes:
+      - gallery-dev-data:/data
+
+volumes:
+  frontend-node-modules:
+  gallery-dev-data:

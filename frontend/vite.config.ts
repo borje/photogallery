@@ -11,9 +11,16 @@ export default defineConfig({
     alias: { '@': path.resolve(import.meta.dirname, './src') },
   },
   server: {
+    // Listen on all interfaces so the dev server is reachable over Tailscale.
+    host: true,
     // In development the Go backend runs on :8080; same-origin in production.
+    // API_PROXY_TARGET overrides the target when the dev server runs in a
+    // container (see deploy/docker-compose.dev.yml).
     proxy: {
-      '/api': { target: 'http://localhost:8080', changeOrigin: true },
+      '/api': {
+        target: process.env.API_PROXY_TARGET ?? 'http://localhost:8080',
+        changeOrigin: true,
+      },
     },
   },
   build: {

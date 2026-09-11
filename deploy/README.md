@@ -38,7 +38,22 @@ and rsyncs photos and snapshot to `DEST`. Run it from cron on the host
 
 ## Development
 
+Without containers:
+
 ```
 cd backend && DATA_DIR=/tmp/smugbox go run ./cmd/smugbox serve
 cd frontend && npm run dev          # http://localhost:5173, proxies /api to :8080
 ```
+
+With containers (`deploy/docker-compose.dev.yml`): the Vite dev server runs
+from a bind mount of `frontend/` with hot module reload, and proxies `/api`
+to a backend container built from the production Dockerfile. Backend data is
+kept in the separate `gallery-dev-data` volume.
+
+```
+cd deploy && docker compose -f docker-compose.dev.yml up --build   # http://localhost:5173
+docker compose -f docker-compose.dev.yml exec backend gallery admin create-api-key --label dev
+```
+
+`node_modules` inside the container lives in its own volume so it never
+collides with a host install. Pass `--build` again after backend changes.
