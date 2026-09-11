@@ -17,6 +17,11 @@
 .yarl__thumbnails_container {
   background: transparent;
 }
+/* Hide the thumbnail strip while in native fullscreen (Fullscreen plugin's
+   container is the element that goes :fullscreen). */
+.yarl__fullsize:fullscreen .yarl__thumbnails_container {
+  display: none;
+}
 .yarl__thumbnails_thumbnail {
   border-radius: var(--radius-sm);
   opacity: 0.55;
