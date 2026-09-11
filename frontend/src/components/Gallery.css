@@ -76,7 +76,12 @@
   overscroll-behavior: contain;
 }
 @media (max-width: 767px) {
+  /* Toolbar has ~8 buttons (info, share, zoom in/out, fullscreen, slideshow,
+     download, close); at the default 48px/button that overflows a portrait
+     phone. Shrink buttons so the row stays within 100% width. */
   .yarl__container {
+    --yarl__icon_size: 22px;
+    --yarl__button_padding: 6px;
     --sb-info-w: 0px;
     --sb-info-h: calc(var(--yarl__sb_info, 0) * 42dvh);
     padding-right: 0;
