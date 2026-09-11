@@ -110,7 +110,7 @@ export default function Gallery({ photos }: { photos: Photo[] }) {
       <RowsPhotoAlbum
         photos={items}
         targetRowHeight={320}
-        spacing={6}
+        spacing={12}
         defaultContainerWidth={1504}
         sizes={{ size: '1504px', sizes: [{ viewport: '(max-width: 1536px)', size: 'calc(100vw - 32px)' }] }}
         breakpoints={[360, 600, 900, 1200, 1536]}
@@ -120,7 +120,10 @@ export default function Gallery({ photos }: { photos: Photo[] }) {
         open={index >= 0}
         index={Math.max(index, 0)}
         slides={slides}
-        close={() => setPhoto(null, true)}
+        close={() => {
+          ;(document.activeElement as HTMLElement | null)?.blur()
+          setPhoto(null, true)
+        }}
         on={{
           view: ({ index: i }) => {
             if (photos[i] && photos[i].id !== photoParam) setPhoto(photos[i].id, true)
