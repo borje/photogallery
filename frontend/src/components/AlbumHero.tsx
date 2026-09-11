@@ -73,48 +73,46 @@ export default function AlbumHero({ album, cover }: { album: AlbumDetail; cover?
     .join(', ')
 
   return (
-    <div className="space-y-5">
-      <section
-        data-testid="album-hero"
-        className="relative aspect-[4/3] max-h-[70vh] min-h-[280px] w-full overflow-hidden rounded-2xl bg-muted ring-1 ring-foreground/10 sm:aspect-[2/1] lg:aspect-[21/9]"
-      >
-        <img
-          src={cover.urls.thumb}
-          alt=""
-          aria-hidden="true"
-          className="absolute inset-0 size-full scale-110 object-cover blur-2xl"
-        />
-        <img
-          src={cover.urls.medium}
-          srcSet={srcSet}
-          sizes={HERO_SIZES}
-          alt=""
-          fetchPriority="high"
-          decoding="async"
-          onLoad={() => setLoaded(true)}
-          className={cn(
-            'absolute inset-0 size-full object-cover transition-opacity duration-700 ease-out',
-            loaded ? 'opacity-100' : 'opacity-0',
+    <section
+      data-testid="album-hero"
+      className="relative aspect-[4/3] max-h-[25vh] min-h-[280px] w-full overflow-hidden rounded-2xl bg-muted ring-1 ring-foreground/10 sm:aspect-[2/1] lg:aspect-[21/9]"
+    >
+      <img
+        src={cover.urls.thumb}
+        alt=""
+        aria-hidden="true"
+        className="absolute inset-0 size-full scale-110 object-cover blur-2xl"
+      />
+      <img
+        src={cover.urls.medium}
+        srcSet={srcSet}
+        sizes={HERO_SIZES}
+        alt=""
+        fetchPriority="high"
+        decoding="async"
+        onLoad={() => setLoaded(true)}
+        className={cn(
+          'absolute inset-0 size-full object-cover transition-opacity duration-700 ease-out',
+          loaded ? 'opacity-100' : 'opacity-0',
+        )}
+      />
+      <div
+        aria-hidden="true"
+        className="absolute inset-x-0 bottom-0 h-3/4 bg-gradient-to-t from-black/80 via-black/35 to-transparent"
+      />
+      <div className="absolute inset-x-0 bottom-0 flex flex-wrap items-end justify-between gap-x-6 gap-y-4 p-5 sm:p-8">
+        <div className="space-y-2 text-white [text-shadow:0_1px_2px_rgb(0_0_0/0.4)]">
+          <Meta album={album} className="text-xs font-medium uppercase tracking-[0.18em] text-white/75" />
+          <Title album={album} className="text-3xl leading-[1.05] sm:text-5xl" />
+          {album.description && (
+            <p className="max-w-prose text-sm leading-relaxed text-white/85 sm:text-base">{album.description}</p>
           )}
-        />
-        <div
-          aria-hidden="true"
-          className="absolute inset-x-0 bottom-0 h-3/4 bg-gradient-to-t from-black/80 via-black/35 to-transparent"
-        />
-        <div className="absolute inset-x-0 bottom-0 flex flex-wrap items-end justify-between gap-x-6 gap-y-4 p-5 sm:p-8">
-          <div className="space-y-2 text-white [text-shadow:0_1px_2px_rgb(0_0_0/0.4)]">
-            <Meta album={album} className="text-xs font-medium uppercase tracking-[0.18em] text-white/75" />
-            <Title album={album} className="text-3xl leading-[1.05] sm:text-5xl" />
-          </div>
-          <DownloadButton
-            album={album}
-            className="border-white/25 bg-white/10 text-white backdrop-blur-md hover:bg-white/20 hover:text-white"
-          />
         </div>
-      </section>
-      {album.description && (
-        <p className="max-w-prose text-base leading-relaxed text-muted-foreground">{album.description}</p>
-      )}
-    </div>
+        <DownloadButton
+          album={album}
+          className="border-white/25 bg-white/10 text-white backdrop-blur-md hover:bg-white/20 hover:text-white"
+        />
+      </div>
+    </section>
   )
 }
