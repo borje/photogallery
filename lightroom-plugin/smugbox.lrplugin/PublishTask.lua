@@ -303,8 +303,11 @@ end
 
 -- Per-collection settings dialog. Values persist with the collection in the
 -- catalog (in clear text, which is acceptable for album passwords).
--- Photos of the collection being edited, in its sort order; empty for a
+-- Photos of the collection being edited, sorted by file name; empty for a
 -- collection that is still being created or when the catalog cannot be read.
+-- getPhotos() has no documented order, and the server sorts unordered albums
+-- by capture time then file name, so file name is the closest local proxy to
+-- what the frontend shows without a network round trip.
 local function collectionPhotos(collection)
 	if not collection or collection:type() ~= "LrPublishedCollection" then
 		return {}
@@ -316,7 +319,19 @@ local function collectionPhotos(collection)
 		log:warnf("collection photos: %s", tostring(photos))
 		return {}
 	end
-	return photos or {}
+	photos = photos or {}
+	local keyed = {}
+	for _, photo in ipairs(photos) do
+		table.insert(keyed, { photo = photo, fileName = photo:getFormattedMetadata("fileName") or "" })
+	end
+	table.sort(keyed, function(a, b)
+		return a.fileName < b.fileName
+	end)
+	local sorted = {}
+	for i, entry in ipairs(keyed) do
+		sorted[i] = entry.photo
+	end
+	return sorted
 end
 
 -- Popup menu + live thumbnail for the cover photo. Lightroom's view kit has
@@ -336,7 +351,7 @@ local function coverPicker(f, settings, info)
 		}
 	end
 
-	local items = { { title = "First photo in the album", value = "" } }
+	local items = {}
 	local byUuid = {}
 	for _, photo in ipairs(photos) do
 		local uuid = photo:getRawMetadata("uuid")
@@ -349,7 +364,7 @@ local function coverPicker(f, settings, info)
 		table.insert(items, { title = label, value = uuid })
 	end
 	if not byUuid[settings.coverPhotoUuid] then
-		settings.coverPhotoUuid = "" -- picked photo has left the collection
+		settings.coverPhotoUuid = photos[1]:getRawMetadata("uuid") -- unset or picked photo has left the collection
 	end
 
 	return f:row {
