@@ -49,9 +49,10 @@ type crumb struct {
 
 type albumDetail struct {
 	albumListItem
-	Breadcrumb  []crumb     `json:"breadcrumb,omitempty"`
-	DownloadURL string      `json:"download_url"`
-	Photos      []photoJSON `json:"photos"`
+	Breadcrumb   []crumb     `json:"breadcrumb,omitempty"`
+	CoverPhotoID string      `json:"cover_photo_id,omitempty"` // id of the photo /cover shows; one of Photos
+	DownloadURL  string      `json:"download_url"`
+	Photos       []photoJSON `json:"photos"`
 }
 
 func apiAlbumPath(slug string) string { return "/api/albums/" + slug }
@@ -146,7 +147,7 @@ func (s *Server) getAlbum(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, r, err)
 		return
 	}
-	out := albumDetail{albumListItem: listItem(sum), Breadcrumb: crumbs, DownloadURL: apiAlbumPath(sum.Slug) + "/download", Photos: make([]photoJSON, 0, len(photos))}
+	out := albumDetail{albumListItem: listItem(sum), Breadcrumb: crumbs, CoverPhotoID: sum.ResolvedCover, DownloadURL: apiAlbumPath(sum.Slug) + "/download", Photos: make([]photoJSON, 0, len(photos))}
 	for _, p := range photos {
 		out.Photos = append(out.Photos, toPhotoJSON(sum.Slug, p))
 	}

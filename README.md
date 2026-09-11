@@ -21,7 +21,9 @@ The design document with all decisions is
 ## How it works
 
 1. In Lightroom you create a published collection under the **Photo Gallery**
-   service, optionally give it a password, and click *Publish*.
+   service, optionally give it a password, and click *Publish*. Editing the
+   collection's settings afterwards lets you pick a cover photo; otherwise the
+   first photo in the collection's sort order is used.
 2. The plugin exports full-size JPEGs and uploads each one with its title,
    caption, keywords, capture time and camera data. Re-publishing an edited
    photo replaces it in place; removing a photo or the collection removes it

@@ -69,6 +69,24 @@ Check the log after every step below. Server state can be inspected with
 - [ ] Turn off "Show in the public album list". Expect: missing from
       `/api/albums`, still reachable at `/api/albums/test-album`.
 
+## Cover photo
+
+- [ ] Edit the settings of a published collection. Expect: a "Cover photo"
+      popup listing the collection's photos by file name (and title), with
+      "First photo in the album" preselected and a thumbnail of the first
+      photo next to it. Changing the selection updates the thumbnail.
+- [ ] Pick another photo and save. Expect: `cover_photo_id` in
+      `GET /api/albums/test-album` is that photo's id and `/cover` serves its
+      thumb; the album page shows it as the header image.
+- [ ] Add a new photo to the collection, pick it as cover before publishing,
+      save. Expect: the server cover is unchanged (log says "cover photo not
+      published yet"). Publish. Expect: the new photo is now the cover.
+- [ ] Remove the cover photo from the collection and publish. Expect: the
+      server falls back to the first photo; reopening the settings shows
+      "First photo in the album".
+- [ ] Edit the settings of a collection that has never been published.
+      Expect: a hint instead of the popup, no error.
+
 ## Sort order
 
 - [ ] In the collection, set sort to "Custom Order" and drag photos around.

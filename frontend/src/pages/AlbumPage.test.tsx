@@ -1,6 +1,8 @@
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { http, HttpResponse } from 'msw'
 import { server } from '@/test/server'
+import { emptyAlbum } from '@/test/fixtures'
 import { unlocked } from '@/test/handlers'
 import { renderApp } from '@/test/render'
 
@@ -15,6 +17,16 @@ describe('AlbumPage', () => {
 
     const zip = screen.getByRole('link', { name: /Download album/ })
     expect(zip).toHaveAttribute('href', '/api/albums/summer-2026/download')
+
+    // The hero shows the album's cover photo (p2, not the first photo) from
+    // the real variants, with a blurred thumb behind it as placeholder.
+    const hero = screen.getByTestId('album-hero')
+    expect(within(hero).getByRole('heading', { name: /Summer 2026/ })).toBeInTheDocument()
+    const [placeholder, main] = Array.from(hero.querySelectorAll('img'))
+    expect(placeholder).toHaveAttribute('src', '/api/albums/summer-2026/photos/p2/thumb')
+    expect(main).toHaveAttribute('src', '/api/albums/summer-2026/photos/p2/medium')
+    expect(main.getAttribute('srcset')).toContain('/api/albums/summer-2026/photos/p2/small 533w')
+    expect(main).toHaveAttribute('sizes')
 
     const imgs = await screen.findAllByRole('img')
     const sunrise = imgs.find((img) => img.getAttribute('alt') === 'Sunrise')
@@ -106,6 +118,19 @@ describe('AlbumPage', () => {
     await waitFor(() => expect(screen.queryByLabelText('Password')).toBeNull())
     expect(screen.getByText('Protected')).toBeInTheDocument()
     server.events.removeListener('request:start', spy)
+  })
+
+  it('falls back to a plain header when the album has no cover', async () => {
+    server.use(
+      http.get('/api/albums/:slug', () =>
+        HttpResponse.json({ ...emptyAlbum, download_url: '/api/albums/empty/download', photos: [] }),
+      ),
+    )
+    renderApp('/a/empty')
+    expect(await screen.findByRole('heading', { name: 'Empty' })).toBeInTheDocument()
+    expect(screen.queryByTestId('album-hero')).toBeNull()
+    expect(screen.getByText(/no photos yet/)).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /Download album/ })).toBeNull()
   })
 
   it('shows a breadcrumb back to the containing folder', async () => {

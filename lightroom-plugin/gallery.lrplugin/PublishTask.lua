@@ -9,6 +9,7 @@ local LrDialogs = import "LrDialogs"
 local LrErrors = import "LrErrors"
 local LrPathUtils = import "LrPathUtils"
 local LrProgressScope = import "LrProgressScope"
+local LrTasks = import "LrTasks"
 local LrView = import "LrView"
 
 local json = require "dkjson"
@@ -118,6 +119,55 @@ function PublishTask.metadataFields(photo, renderedPath)
 	return fields
 end
 
+-- Cover photo. The collection settings store the catalog uuid of the chosen
+-- photo (coverPhotoUuid, "" = let the server use the first photo in sort
+-- order), because the photo may not have been published yet when it is
+-- picked. It is translated to the server's photo id whenever settings are
+-- saved and after every publish run.
+--
+-- Returns the value for cover_photo_id: "" when unset, the remote id when the
+-- photo is published, or nil when it cannot be resolved yet. `uploaded` maps
+-- catalog uuid -> remote id for photos uploaded in the current run, which
+-- the collection's published-photo list does not reflect until it ends.
+function PublishTask.resolveCoverId(collection, coverUuid, uploaded)
+	if coverUuid == nil or coverUuid == "" then
+		return ""
+	end
+	if uploaded and uploaded[coverUuid] then
+		return uploaded[coverUuid]
+	end
+	if not collection or collection:type() ~= "LrPublishedCollection" then
+		return nil
+	end
+	local ok, remoteId = LrTasks.pcall(function()
+		for _, pp in ipairs(collection:getPublishedPhotos()) do
+			if pp:getPhoto():getRawMetadata("uuid") == coverUuid then
+				return pp:getRemoteId()
+			end
+		end
+		return nil
+	end)
+	if not ok then
+		log:warnf("resolve cover: %s", tostring(remoteId))
+		return nil
+	end
+	return remoteId
+end
+
+-- Sends the cover to the server if it can be resolved; failures are logged,
+-- never fatal, since the photos themselves are already published.
+function PublishTask.pushCover(api, albumId, collection, collectionSettings, uploaded)
+	local coverId = PublishTask.resolveCoverId(collection, (collectionSettings or {}).coverPhotoUuid, uploaded)
+	if coverId == nil then
+		log:infof("cover photo not published yet, leaving server cover unchanged")
+		return
+	end
+	local ok, result = api:updateAlbum(albumId, { cover_photo_id = coverId })
+	if not ok then
+		log:warnf("set cover: %s", tostring(result))
+	end
+end
+
 local function stopWithError(message)
 	log:error(message)
 	LrErrors.throwUserError(message)
@@ -182,6 +232,7 @@ function PublishTask.processRenderedPhotos(functionContext, exportContext)
 	end
 
 	local failures = {}
+	local uploaded = {} -- catalog uuid -> remote id, for the cover lookup
 	local albumRecreated = false
 	for i, rendition in exportContext:renditions({ stopIfCanceled = true }) do
 		progress:setPortionComplete(i - 1, nPhotos)
@@ -215,6 +266,7 @@ function PublishTask.processRenderedPhotos(functionContext, exportContext)
 
 			if ok and type(result) == "table" and result.id then
 				rendition:recordPublishedPhotoId(result.id)
+				uploaded[fields.lr_photo_uuid] = result.id
 				if result.url then
 					rendition:recordPublishedPhotoUrl(result.url)
 				end
@@ -230,6 +282,7 @@ function PublishTask.processRenderedPhotos(functionContext, exportContext)
 		end
 	end
 	progress:done()
+	PublishTask.pushCover(api, albumId, publishedCollection, collectionSettings, uploaded)
 
 	if #failures > 0 then
 		local shown = {}
@@ -250,6 +303,79 @@ end
 
 -- Per-collection settings dialog. Values persist with the collection in the
 -- catalog (in clear text, which is acceptable for album passwords).
+-- Photos of the collection being edited, in its sort order; empty for a
+-- collection that is still being created or when the catalog cannot be read.
+local function collectionPhotos(collection)
+	if not collection or collection:type() ~= "LrPublishedCollection" then
+		return {}
+	end
+	local ok, photos = LrTasks.pcall(function()
+		return collection:getPhotos()
+	end)
+	if not ok then
+		log:warnf("collection photos: %s", tostring(photos))
+		return {}
+	end
+	return photos or {}
+end
+
+-- Popup menu + live thumbnail for the cover photo. Lightroom's view kit has
+-- no clickable thumbnail grid, so the photo is chosen by file name and the
+-- catalog_photo view next to it shows what was picked.
+local function coverPicker(f, settings, info)
+	local bind = LrView.bind
+	local share = LrView.share
+	local photos = collectionPhotos(info.publishedCollection)
+	if #photos == 0 then
+		local hint = info.publishedCollection
+				and "The album has no photos yet."
+			or "Create the album and publish it once, then edit its settings to pick a cover photo."
+		return f:row {
+			f:static_text { title = "Cover photo:", alignment = "right", width = share "albumLabel" },
+			f:static_text { title = hint, font = "<system/small>" },
+		}
+	end
+
+	local items = { { title = "First photo in the album", value = "" } }
+	local byUuid = {}
+	for _, photo in ipairs(photos) do
+		local uuid = photo:getRawMetadata("uuid")
+		local label = photo:getFormattedMetadata("fileName") or uuid
+		local title = photo:getFormattedMetadata("title")
+		if title and title ~= "" then
+			label = label .. " – " .. title
+		end
+		byUuid[uuid] = photo
+		table.insert(items, { title = label, value = uuid })
+	end
+	if not byUuid[settings.coverPhotoUuid] then
+		settings.coverPhotoUuid = "" -- picked photo has left the collection
+	end
+
+	return f:row {
+		f:static_text { title = "Cover photo:", alignment = "right", width = share "albumLabel" },
+		f:column {
+			spacing = f:control_spacing(),
+			fill_horizontal = 1,
+			f:popup_menu { value = bind "coverPhotoUuid", items = items, fill_horizontal = 1 },
+			f:catalog_photo {
+				photo = bind {
+					key = "coverPhotoUuid",
+					transform = function(value)
+						return byUuid[value] or photos[1]
+					end,
+				},
+				width = 240,
+				height = 160,
+			},
+			f:static_text {
+				title = "Shown in the album list and at the top of the album page. A photo that is not published yet becomes the cover on the next publish.",
+				font = "<system/small>",
+			},
+		},
+	}
+end
+
 function PublishTask.viewForCollectionSettings(f, publishSettings, info)
 	local settings = assert(info.collectionSettings)
 	if settings.isListed == nil then
@@ -260,6 +386,9 @@ function PublishTask.viewForCollectionSettings(f, publishSettings, info)
 	end
 	if settings.description == nil then
 		settings.description = ""
+	end
+	if settings.coverPhotoUuid == nil then
+		settings.coverPhotoUuid = ""
 	end
 	local bind = LrView.bind
 	local share = LrView.share
@@ -286,12 +415,13 @@ function PublishTask.viewForCollectionSettings(f, publishSettings, info)
 			f:static_text { title = "Description:", alignment = "right", width = share "albumLabel" },
 			f:edit_field { value = bind "description", immediate = true, fill_horizontal = 1, height_in_lines = 3 },
 		},
+		coverPicker(f, settings, info),
 	}
 end
 
 -- Called after the collection settings dialog is confirmed. Sends name,
--- password, listing and description; the backend only bumps the password
--- version when the password actually changed.
+-- password, listing, description and cover; the backend only bumps the
+-- password version when the password actually changed.
 --
 -- Not published yet (no remoteId): do nothing here. Lightroom discards any
 -- remoteId we record from within this callback for a collection that has
@@ -317,6 +447,7 @@ function PublishTask.updateCollectionSettings(publishSettings, info)
 		return
 	end
 	local fields = PublishTask.albumFields(info.name, info.collectionSettings, parentId)
+	fields.cover_photo_id = PublishTask.resolveCoverId(info.publishedCollection, (info.collectionSettings or {}).coverPhotoUuid)
 	local ok, result = api:updateAlbum(remoteId, fields)
 	if not ok then
 		LrDialogs.message("Photo Gallery: album settings not saved on server", tostring(result), "warning")

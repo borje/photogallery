@@ -41,6 +41,8 @@ export interface Crumb {
 
 export interface AlbumDetail extends AlbumSummary {
   breadcrumb?: Crumb[]
+  /** Id of the photo shown as cover; one of `photos`. Absent for an empty album. */
+  cover_photo_id?: string
   download_url: string
   photos: Photo[]
 }

@@ -49,6 +49,7 @@ export const emptyAlbum: AlbumSummary = {
 export const summerDetail: AlbumDetail = {
   ...summerAlbum,
   description: 'Two weeks by the sea.',
+  cover_photo_id: 'p2',
   download_url: '/api/albums/summer-2026/download',
   photos: [
     photo('summer-2026', 'p1', { title: 'Sunrise', caption: 'First morning', taken_at: '2026-07-01T10:00:00', exif: { make: 'Canon', model: 'EOS R5', exposure: '1/250 sec at f/2.8', iso: 'ISO 100' } }),
@@ -58,6 +59,7 @@ export const summerDetail: AlbumDetail = {
 
 export const weddingDetail: AlbumDetail = {
   ...secretAlbum,
+  cover_photo_id: 'w1',
   download_url: '/api/albums/wedding/download',
   photos: [photo('wedding', 'w1')],
 }
@@ -88,6 +90,7 @@ export const travelFolderDetail: FolderDetail = {
 export const icelandDetail: AlbumDetail = {
   ...icelandAlbum,
   breadcrumb: [{ slug: 'travel', name: 'Travel' }],
+  cover_photo_id: 'i1',
   download_url: '/api/albums/iceland/download',
   photos: [photo('iceland', 'i1')],
 }

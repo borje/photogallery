@@ -81,6 +81,9 @@ func TestAlbumListDetailAndCover(t *testing.T) {
 	if rec.Code != 200 || len(detail.Photos) != 2 || detail.DownloadURL != "/api/albums/public-album/download" || detail.Locked {
 		t.Fatalf("detail: %d %+v", rec.Code, detail)
 	}
+	if detail.CoverPhotoID != p1 || detail.CoverURL != "/api/albums/public-album/cover" {
+		t.Fatalf("default cover in detail: %+v", detail)
+	}
 	ph := detail.Photos[0]
 	if ph.ID != p1 || ph.Width != 600 || ph.Height != 400 || ph.Title != "One" || ph.Filename != "one.jpg" {
 		t.Fatalf("photo json: %+v", ph)
@@ -135,6 +138,10 @@ func TestAlbumListDetailAndCover(t *testing.T) {
 	rec = e.get("/api/albums/" + pub.Slug + "/cover")
 	if !bytes.Equal(rec.Body.Bytes(), e.readVariant(pub.ID, p2, "thumb")) {
 		t.Fatal("explicit cover not used")
+	}
+	decode(t, e.get("/api/albums/"+pub.Slug), &detail)
+	if detail.CoverPhotoID != p2 {
+		t.Fatalf("explicit cover in detail: %q", detail.CoverPhotoID)
 	}
 }
 

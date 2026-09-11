@@ -283,6 +283,7 @@ album:**
   för publika album, `blur` för låsta album. Aldrig något skarpare för låsta album.
 - `GET /api/albums/{slug}` → 200 med albuminfo + bildlista (inkl. width/height, titel,
   bildtext, tagningstid och URL:er för alla varianter, så frontend kan bygga `srcSet`)
+  samt `cover_photo_id` (id:t på omslagsbilden i bildlistan, för albumsidans header)
   om publikt eller upplåst, annars `401 {"error":"password_required"}` med
   `name`, `photo_count` så `<PasswordGate>` kan visa vad man låser upp. Båda svaren
   innehåller `breadcrumb` (samma form som ovan) så frontend kan visa var i trädet albumet

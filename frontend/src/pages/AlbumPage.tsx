@@ -1,17 +1,14 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useParams } from 'react-router'
-import { Download, Lock } from 'lucide-react'
 import { api, isApiError } from '@/api/client'
 import type { PasswordRequired } from '@/api/types'
+import AlbumHero from '@/components/AlbumHero'
 import Breadcrumb from '@/components/Breadcrumb'
 import Gallery from '@/components/Gallery'
 import PasswordGate from '@/components/PasswordGate'
 import NotFoundPage from '@/pages/NotFoundPage'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { formatDateRange, photoCount } from '@/lib/format'
 
 export default function AlbumPage() {
   const { slug = '' } = useParams<{ slug: string }>()
@@ -25,8 +22,8 @@ export default function AlbumPage() {
   if (isPending) {
     return (
       <div className="space-y-6" aria-busy="true" aria-label="Loading album">
-        <Skeleton className="h-8 w-1/3" />
         <Skeleton className="h-4 w-1/4" />
+        <Skeleton className="aspect-[4/3] max-h-[70vh] min-h-[280px] w-full rounded-2xl sm:aspect-[2/1] lg:aspect-[21/9]" />
         <div className="grid gap-2 sm:grid-cols-3">
           {Array.from({ length: 6 }).map((_, i) => (
             <Skeleton key={i} className="aspect-[3/2] w-full" />
@@ -59,35 +56,11 @@ export default function AlbumPage() {
     )
   }
 
-  const dates = formatDateRange(data.taken_from, data.taken_to)
+  const cover = data.cover_photo_id ? data.photos.find((p) => p.id === data.cover_photo_id) : undefined
   return (
     <div className="space-y-6">
       <Breadcrumb crumbs={data.breadcrumb} current={data.name} />
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="space-y-1">
-          <h1 className="flex items-center gap-2 text-3xl font-semibold tracking-tight">
-            {data.name}
-            {data.locked && (
-              <Badge variant="secondary" className="gap-1">
-                <Lock className="size-3" aria-hidden="true" /> Protected
-              </Badge>
-            )}
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            {photoCount(data.photo_count)}
-            {dates && <> · {dates}</>}
-          </p>
-          {data.description && <p className="max-w-prose pt-2 text-muted-foreground">{data.description}</p>}
-        </div>
-        {data.photos.length > 0 && (
-          <Button asChild variant="outline">
-            <a href={data.download_url} download>
-              <Download className="size-4" aria-hidden="true" />
-              Download album (zip)
-            </a>
-          </Button>
-        )}
-      </div>
+      <AlbumHero album={data} cover={cover} />
       <Gallery photos={data.photos} />
     </div>
   )
