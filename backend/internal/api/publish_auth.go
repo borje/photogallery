@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/bege/photogallery/backend/internal/auth"
+	"github.com/bege/smugbox/backend/internal/auth"
 )
 
 // requireAPIKey authenticates Lightroom plugin requests with
@@ -45,6 +45,6 @@ func (s *Server) requireAPIKey(next http.Handler) http.Handler {
 }
 
 func (s *Server) unauthorized(w http.ResponseWriter) {
-	w.Header().Set("WWW-Authenticate", `Bearer realm="gallery"`)
+	w.Header().Set("WWW-Authenticate", `Bearer realm="smugbox"`)
 	writeError(w, http.StatusUnauthorized, "unauthorized", "")
 }

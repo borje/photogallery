@@ -11,9 +11,9 @@ describe('App', () => {
     expect(document.title).toBe('The Granberg Archive')
   })
 
-  it('falls back to "Photo Gallery" when the site config request fails', async () => {
+  it('falls back to "Smugbox" when the site config request fails', async () => {
     server.use(http.get('/api/site', () => HttpResponse.json({ error: 'boom' }, { status: 500 })))
     renderApp('/')
-    expect(await screen.findByRole('link', { name: /Photo Gallery/ })).toBeInTheDocument()
+    expect(await screen.findByRole('link', { name: /Smugbox/ })).toBeInTheDocument()
   })
 })

@@ -8,7 +8,7 @@ import (
 
 	"golang.org/x/text/unicode/norm"
 
-	"github.com/bege/photogallery/backend/internal/db"
+	"github.com/bege/smugbox/backend/internal/db"
 )
 
 const maxSlugLen = 80

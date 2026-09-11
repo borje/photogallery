@@ -14,30 +14,30 @@ local LrTasks = import "LrTasks"
 local json = require "dkjson"
 local Util = require "Util"
 
-local GalleryAPI = {}
-GalleryAPI.__index = GalleryAPI
+local SmugboxAPI = {}
+SmugboxAPI.__index = SmugboxAPI
 
 local TIMEOUT = 30 -- seconds, per connection phase
 local UPLOAD_TIMEOUT = 600
 
-function GalleryAPI.normalizeUrl(url)
+function SmugboxAPI.normalizeUrl(url)
 	url = Util.trim(url)
 	url = url:gsub("/+$", "")
 	return url
 end
 
-function GalleryAPI.new(serverUrl, apiKey)
-	local self = setmetatable({}, GalleryAPI)
-	self.baseUrl = GalleryAPI.normalizeUrl(serverUrl)
+function SmugboxAPI.new(serverUrl, apiKey)
+	local self = setmetatable({}, SmugboxAPI)
+	self.baseUrl = SmugboxAPI.normalizeUrl(serverUrl)
 	self.apiKey = Util.trim(apiKey)
 	return self
 end
 
-function GalleryAPI:isConfigured()
+function SmugboxAPI:isConfigured()
 	return self.baseUrl:match("^https?://") ~= nil and self.apiKey ~= ""
 end
 
-function GalleryAPI:headers(withJsonBody)
+function SmugboxAPI:headers(withJsonBody)
 	local h = {
 		{ field = "Authorization", value = "Bearer " .. self.apiKey },
 		{ field = "Accept", value = "application/json" },
@@ -83,10 +83,10 @@ local function parseResponse(body, headers, what)
 end
 
 -- JSON request. method is GET, POST, PUT or DELETE.
-function GalleryAPI:request(method, path, bodyTable, what)
+function SmugboxAPI:request(method, path, bodyTable, what)
 	what = what or (method .. " " .. path)
 	if not self:isConfigured() then
-		return false, "Server URL or API key is not set (Publishing Manager > Photo Gallery)", nil, nil
+		return false, "Server URL or API key is not set (Publishing Manager > Smugbox)", nil, nil
 	end
 	local url = self.baseUrl .. path
 	log:tracef("%s %s", method, url)
@@ -104,50 +104,50 @@ function GalleryAPI:request(method, path, bodyTable, what)
 	return ok, result, status, data
 end
 
-function GalleryAPI:ping()
+function SmugboxAPI:ping()
 	return self:request("GET", "/api/publish/ping", nil, "Connection test")
 end
 
-function GalleryAPI:createAlbum(fields)
+function SmugboxAPI:createAlbum(fields)
 	return self:request("POST", "/api/publish/albums", fields, "Create album")
 end
 
-function GalleryAPI:updateAlbum(albumId, fields)
+function SmugboxAPI:updateAlbum(albumId, fields)
 	return self:request("PUT", "/api/publish/albums/" .. albumId, fields, "Update album")
 end
 
-function GalleryAPI:deleteAlbum(albumId)
+function SmugboxAPI:deleteAlbum(albumId)
 	return self:request("DELETE", "/api/publish/albums/" .. albumId, nil, "Delete album")
 end
 
-function GalleryAPI:listPhotos(albumId)
+function SmugboxAPI:listPhotos(albumId)
 	return self:request("GET", "/api/publish/albums/" .. albumId .. "/photos", nil, "List photos")
 end
 
-function GalleryAPI:deletePhoto(albumId, photoId)
+function SmugboxAPI:deletePhoto(albumId, photoId)
 	return self:request("DELETE", "/api/publish/albums/" .. albumId .. "/photos/" .. photoId, nil, "Delete photo")
 end
 
-function GalleryAPI:setOrder(albumId, photoIds)
+function SmugboxAPI:setOrder(albumId, photoIds)
 	return self:request("PUT", "/api/publish/albums/" .. albumId .. "/order", { photo_ids = photoIds }, "Set photo order")
 end
 
-function GalleryAPI:createFolder(fields)
+function SmugboxAPI:createFolder(fields)
 	return self:request("POST", "/api/publish/folders", fields, "Create album set")
 end
 
-function GalleryAPI:updateFolder(folderId, fields)
+function SmugboxAPI:updateFolder(folderId, fields)
 	return self:request("PUT", "/api/publish/folders/" .. folderId, fields, "Update album set")
 end
 
-function GalleryAPI:deleteFolder(folderId)
+function SmugboxAPI:deleteFolder(folderId)
 	return self:request("DELETE", "/api/publish/folders/" .. folderId, nil, "Delete album set")
 end
 
 -- Uploads filePath with metadata fields (all strings). With photoId the
 -- call replaces that photo (the backend accepts POST on the photo path
 -- because LrHttp.postMultipart cannot send PUT). Returns ok, result, status.
-function GalleryAPI:uploadPhoto(albumId, filePath, fields, photoId)
+function SmugboxAPI:uploadPhoto(albumId, filePath, fields, photoId)
 	if not self:isConfigured() then
 		return false, "Server URL or API key is not set", nil, nil
 	end
@@ -177,4 +177,4 @@ function GalleryAPI:uploadPhoto(albumId, filePath, fields, photoId)
 	return ok, result, status, data
 end
 
-return GalleryAPI
+return SmugboxAPI

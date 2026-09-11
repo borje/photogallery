@@ -9,8 +9,8 @@ import (
 	"path"
 	"strings"
 
-	"github.com/bege/photogallery/backend/internal/db"
-	"github.com/bege/photogallery/backend/internal/storage"
+	"github.com/bege/smugbox/backend/internal/db"
+	"github.com/bege/smugbox/backend/internal/storage"
 )
 
 // maxConcurrentZips bounds simultaneous album downloads to spare disk I/O.

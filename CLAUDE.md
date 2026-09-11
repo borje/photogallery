@@ -1,12 +1,12 @@
-# Photo gallery (Lightroom publish service + Go backend + React frontend)
+# Smugbox (Lightroom publish service + Go backend + React frontend)
 
 Design document: `lightroom-gallery-implementation-plan.md` (Swedish). Its decisions
 are fixed; do not re-open them without asking. Code, comments and docs are in English.
 
 ## Layout
 
-- `backend/` — Go module `github.com/bege/photogallery/backend` (Go 1.26, CGO + libvips).
-  - `cmd/gallery` — `serve` and `admin` subcommands (API keys, albums, passwords, gc).
+- `backend/` — Go module `github.com/bege/smugbox/backend` (Go 1.26, CGO + libvips).
+  - `cmd/smugbox` — `serve` and `admin` subcommands (API keys, albums, passwords, gc).
   - `internal/api` — all HTTP under `/api/`; `/api/publish/*` is for the Lightroom
     plugin (Bearer API key), `/api/albums/*` for visitors (cookie for locked albums).
   - `internal/db` — SQLite via `modernc.org/sqlite`, goose migrations embedded from
@@ -18,7 +18,7 @@ are fixed; do not re-open them without asking. Code, comments and docs are in En
   - `internal/web` — serves the frontend build from `FRONTEND_DIR` with SPA fallback.
 - `frontend/` — Vite + React + TypeScript (Tailwind v4, shadcn/ui, react-photo-album,
   yet-another-react-lightbox, TanStack Query, Vitest + MSW).
-- `lightroom-plugin/gallery.lrplugin/` — Lightroom Classic publish service (Lua).
+- `lightroom-plugin/smugbox.lrplugin/` — Lightroom Classic publish service (Lua).
 - `deploy/` — Dockerfile (build from repo root), docker-compose, backup script.
 
 ## Working on the backend
@@ -27,8 +27,8 @@ are fixed; do not re-open them without asking. Code, comments and docs are in En
 cd backend
 go build -p 1 ./...      # -p 1: this dev machine has 2 GB RAM; modernc.org/libc is heavy
 go test -p 1 ./...
-DATA_DIR=/tmp/gallery go run ./cmd/gallery serve
-go run ./cmd/gallery admin create-api-key --label "Lightroom laptop"
+DATA_DIR=/tmp/smugbox go run ./cmd/smugbox serve
+go run ./cmd/smugbox admin create-api-key --label "Lightroom laptop"
 ```
 
 Requires `libvips-dev` and `pkg-config` (apt). Tests use a temp SQLite file and temp

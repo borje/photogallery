@@ -50,7 +50,7 @@ func TestPasswords(t *testing.T) {
 		t.Fatal("password check wrong")
 	}
 	d1, d2 := DummyHash(), DummyHash()
-	if !bytes.Equal(d1, d2) || CheckPassword(d1, "") || CheckPassword(d1, "gallery-dummy-password-never-matches") == false {
+	if !bytes.Equal(d1, d2) || CheckPassword(d1, "") || CheckPassword(d1, "smugbox-dummy-password-never-matches") == false {
 		// The dummy hash is only for timing; it must be stable across calls.
 		if !bytes.Equal(d1, d2) {
 			t.Fatal("dummy hash not stable")

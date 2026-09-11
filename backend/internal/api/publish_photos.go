@@ -16,9 +16,9 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/bege/photogallery/backend/internal/db"
-	"github.com/bege/photogallery/backend/internal/image"
-	"github.com/bege/photogallery/backend/internal/storage"
+	"github.com/bege/smugbox/backend/internal/db"
+	"github.com/bege/smugbox/backend/internal/image"
+	"github.com/bege/smugbox/backend/internal/storage"
 )
 
 const (

@@ -9,7 +9,7 @@ import type { Crumb } from '@/api/types'
 export default function Breadcrumb({ crumbs, current }: { crumbs?: Crumb[]; current?: string }) {
   return (
     <nav aria-label="Breadcrumb" className="flex flex-wrap items-center gap-1 text-sm text-muted-foreground">
-      <Link to="/" aria-label="Gallery" className="hover:text-foreground hover:underline">
+      <Link to="/" aria-label="Smugbox" className="hover:text-foreground hover:underline">
         🏠
       </Link>
       {crumbs?.map((c) => (

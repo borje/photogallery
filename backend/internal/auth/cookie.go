@@ -11,7 +11,7 @@ import (
 )
 
 // SessionCookieName is the visitor session cookie.
-const SessionCookieName = "gallery_session"
+const SessionCookieName = "smugbox_session"
 
 // MaxGrants caps the number of unlocked albums remembered in one cookie so
 // it stays well under browser size limits.

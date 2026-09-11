@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Consistent backup of the gallery data directory.
+# Consistent backup of the smugbox data directory.
 #
 #   deploy/backup.sh /path/to/data /path/to/backup-destination
 #
@@ -15,7 +15,7 @@ set -euo pipefail
 DATA_DIR=${1:?usage: backup.sh DATA_DIR DEST}
 DEST=${2:?usage: backup.sh DATA_DIR DEST}
 
-DB="$DATA_DIR/gallery.db"
+DB="$DATA_DIR/smugbox.db"
 SNAPSHOT_DIR=$(mktemp -d)
 trap 'rm -rf "$SNAPSHOT_DIR"' EXIT
 
@@ -24,10 +24,10 @@ if [ ! -f "$DB" ]; then
   exit 1
 fi
 
-sqlite3 "$DB" "VACUUM INTO '$SNAPSHOT_DIR/gallery.db'"
-sqlite3 "$SNAPSHOT_DIR/gallery.db" "PRAGMA integrity_check" | grep -qx ok
+sqlite3 "$DB" "VACUUM INTO '$SNAPSHOT_DIR/smugbox.db'"
+sqlite3 "$SNAPSHOT_DIR/smugbox.db" "PRAGMA integrity_check" | grep -qx ok
 
 rsync -a --delete "$DATA_DIR/photos/" "$DEST/photos/"
-rsync -a "$SNAPSHOT_DIR/gallery.db" "$DEST/gallery.db"
+rsync -a "$SNAPSHOT_DIR/smugbox.db" "$DEST/smugbox.db"
 
-echo "backup complete: $(du -sh "$DATA_DIR/photos" | cut -f1) of photos, db $(du -h "$SNAPSHOT_DIR/gallery.db" | cut -f1)"
+echo "backup complete: $(du -sh "$DATA_DIR/photos" | cut -f1) of photos, db $(du -h "$SNAPSHOT_DIR/smugbox.db" | cut -f1)"

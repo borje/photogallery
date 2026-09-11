@@ -1,13 +1,13 @@
-// Command gallery runs the photo gallery server and its admin CLI.
+// Command smugbox runs the photo gallery server and its admin CLI.
 //
-//	gallery serve
-//	gallery admin create-api-key --label "Lightroom laptop"
-//	gallery admin revoke-api-key <id>
-//	gallery admin list-api-keys
-//	gallery admin list-albums
-//	gallery admin delete-album <slug>
-//	gallery admin set-password <slug> [--clear]
-//	gallery admin gc [--dry-run]
+//	smugbox serve
+//	smugbox admin create-api-key --label "Lightroom laptop"
+//	smugbox admin revoke-api-key <id>
+//	smugbox admin list-api-keys
+//	smugbox admin list-albums
+//	smugbox admin delete-album <slug>
+//	smugbox admin set-password <slug> [--clear]
+//	smugbox admin gc [--dry-run]
 package main
 
 import (
@@ -22,12 +22,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/bege/photogallery/backend/internal/api"
-	"github.com/bege/photogallery/backend/internal/config"
-	"github.com/bege/photogallery/backend/internal/db"
-	"github.com/bege/photogallery/backend/internal/image"
-	"github.com/bege/photogallery/backend/internal/storage"
-	"github.com/bege/photogallery/backend/internal/web"
+	"github.com/bege/smugbox/backend/internal/api"
+	"github.com/bege/smugbox/backend/internal/config"
+	"github.com/bege/smugbox/backend/internal/db"
+	"github.com/bege/smugbox/backend/internal/image"
+	"github.com/bege/smugbox/backend/internal/storage"
+	"github.com/bege/smugbox/backend/internal/web"
 )
 
 func main() {
@@ -38,7 +38,7 @@ func main() {
 }
 
 func usage() error {
-	return errors.New("usage: gallery serve | gallery admin <create-api-key|revoke-api-key|list-api-keys|list-albums|delete-album|set-password|gc> [flags]")
+	return errors.New("usage: smugbox serve | smugbox admin <create-api-key|revoke-api-key|list-api-keys|list-albums|delete-album|set-password|gc> [flags]")
 }
 
 func run(args []string) error {
@@ -76,7 +76,7 @@ func openData(ctx context.Context, cfg config.Config) (*db.DB, *storage.Store, e
 	if err := os.MkdirAll(cfg.DataDir, 0o755); err != nil {
 		return nil, nil, fmt.Errorf("create data dir: %w", err)
 	}
-	database, err := db.Open(ctx, filepath.Join(cfg.DataDir, "gallery.db"))
+	database, err := db.Open(ctx, filepath.Join(cfg.DataDir, "smugbox.db"))
 	if err != nil {
 		return nil, nil, err
 	}

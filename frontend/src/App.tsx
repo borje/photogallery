@@ -8,7 +8,7 @@ import AlbumPage from '@/pages/AlbumPage'
 import FolderPage from '@/pages/FolderPage'
 import NotFoundPage from '@/pages/NotFoundPage'
 
-const DEFAULT_TITLE = 'Photo Gallery'
+const DEFAULT_TITLE = 'Smugbox'
 
 function Layout() {
   const { data } = useQuery({ queryKey: ['site-config'], queryFn: api.getSiteConfig })

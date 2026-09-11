@@ -29,7 +29,7 @@ var (
 // does not reveal whether a slug is valid.
 func DummyHash() []byte {
 	dummyOnce.Do(func() {
-		h, err := bcrypt.GenerateFromPassword([]byte("gallery-dummy-password-never-matches"), BcryptCost)
+		h, err := bcrypt.GenerateFromPassword([]byte("smugbox-dummy-password-never-matches"), BcryptCost)
 		if err != nil {
 			panic(err)
 		}

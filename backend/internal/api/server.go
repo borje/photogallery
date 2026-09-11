@@ -13,10 +13,10 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/bege/photogallery/backend/internal/auth"
-	"github.com/bege/photogallery/backend/internal/config"
-	"github.com/bege/photogallery/backend/internal/db"
-	"github.com/bege/photogallery/backend/internal/storage"
+	"github.com/bege/smugbox/backend/internal/auth"
+	"github.com/bege/smugbox/backend/internal/config"
+	"github.com/bege/smugbox/backend/internal/db"
+	"github.com/bege/smugbox/backend/internal/storage"
 )
 
 // Deps are the collaborators a Server needs. Now and Rand are injectable

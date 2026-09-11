@@ -13,7 +13,7 @@ local LrTasks = import "LrTasks"
 local LrView = import "LrView"
 
 local json = require "dkjson"
-local GalleryAPI = require "GalleryAPI"
+local SmugboxAPI = require "SmugboxAPI"
 local Util = require "Util"
 
 local PublishTask = {}
@@ -58,7 +58,7 @@ function PublishTask.resolveParent(api, collection)
 				return false, folder
 			end
 			id = folder.id
-			LrApplication.activeCatalog():withWriteAccessDo("Photo Gallery: store album set id", function()
+			LrApplication.activeCatalog():withWriteAccessDo("Smugbox: store album set id", function()
 				s:setRemoteId(id)
 				s:setRemoteUrl(folder.url)
 			end)
@@ -177,9 +177,9 @@ end
 function PublishTask.processRenderedPhotos(functionContext, exportContext)
 	local exportSession = exportContext.exportSession
 	local settings = exportContext.propertyTable
-	local api = GalleryAPI.new(settings.serverUrl, settings.apiKey)
+	local api = SmugboxAPI.new(settings.serverUrl, settings.apiKey)
 	if not api:isConfigured() then
-		stopWithError("Photo Gallery: set the server URL and API key in the Publishing Manager first.")
+		stopWithError("Smugbox: set the server URL and API key in the Publishing Manager first.")
 	end
 
 	local collectionInfo = exportContext.publishedCollectionInfo
@@ -198,21 +198,21 @@ function PublishTask.processRenderedPhotos(functionContext, exportContext)
 
 	local nPhotos = exportSession:countRenditions()
 	local progress = LrProgressScope({
-		title = string.format("Publishing %d photo%s to Photo Gallery", nPhotos, nPhotos == 1 and "" or "s"),
+		title = string.format("Publishing %d photo%s to Smugbox", nPhotos, nPhotos == 1 and "" or "s"),
 		functionContext = functionContext,
 	})
 
 	local parentOk, parentId = PublishTask.resolveParent(api, publishedCollection)
 	if not parentOk then
 		progress:done()
-		stopWithError("Photo Gallery: " .. tostring(parentId))
+		stopWithError("Smugbox: " .. tostring(parentId))
 	end
 
 	local function createAlbum()
 		local ok, album = api:createAlbum(PublishTask.albumFields(albumName, collectionSettings, parentId))
 		if not ok then
 			progress:done()
-			stopWithError("Photo Gallery: " .. tostring(album))
+			stopWithError("Smugbox: " .. tostring(album))
 		end
 		log:infof("created album %s (%s)", album.id, album.url)
 		exportSession:recordRemoteCollectionId(album.id)
@@ -437,20 +437,20 @@ function PublishTask.updateCollectionSettings(publishSettings, info)
 	if not remoteId then
 		return
 	end
-	local api = GalleryAPI.new(publishSettings.serverUrl, publishSettings.apiKey)
+	local api = SmugboxAPI.new(publishSettings.serverUrl, publishSettings.apiKey)
 	if not api:isConfigured() then
 		return
 	end
 	local parentOk, parentId = PublishTask.resolveParent(api, info.publishedCollection)
 	if not parentOk then
-		LrDialogs.message("Photo Gallery: could not resolve album set on server", tostring(parentId), "warning")
+		LrDialogs.message("Smugbox: could not resolve album set on server", tostring(parentId), "warning")
 		return
 	end
 	local fields = PublishTask.albumFields(info.name, info.collectionSettings, parentId)
 	fields.cover_photo_id = PublishTask.resolveCoverId(info.publishedCollection, (info.collectionSettings or {}).coverPhotoUuid)
 	local ok, result = api:updateAlbum(remoteId, fields)
 	if not ok then
-		LrDialogs.message("Photo Gallery: album settings not saved on server", tostring(result), "warning")
+		LrDialogs.message("Smugbox: album settings not saved on server", tostring(result), "warning")
 	end
 end
 
@@ -464,7 +464,7 @@ function PublishTask.renamePublishedCollection(publishSettings, info)
 	if not info.remoteId then
 		return
 	end
-	local api = GalleryAPI.new(publishSettings.serverUrl, publishSettings.apiKey)
+	local api = SmugboxAPI.new(publishSettings.serverUrl, publishSettings.apiKey)
 	local ok, result
 	if isCollectionSet(info) then
 		ok, result = api:updateFolder(info.remoteId, { name = info.name })
@@ -472,7 +472,7 @@ function PublishTask.renamePublishedCollection(publishSettings, info)
 		ok, result = api:updateAlbum(info.remoteId, { name = info.name })
 	end
 	if not ok then
-		LrDialogs.message("Photo Gallery: not renamed on server", tostring(result), "warning")
+		LrDialogs.message("Smugbox: not renamed on server", tostring(result), "warning")
 	end
 end
 
@@ -480,7 +480,7 @@ function PublishTask.deletePublishedCollection(publishSettings, info)
 	if not info.remoteId then
 		return
 	end
-	local api = GalleryAPI.new(publishSettings.serverUrl, publishSettings.apiKey)
+	local api = SmugboxAPI.new(publishSettings.serverUrl, publishSettings.apiKey)
 	local ok, result, status
 	if isCollectionSet(info) then
 		ok, result, status = api:deleteFolder(info.remoteId)
@@ -488,12 +488,12 @@ function PublishTask.deletePublishedCollection(publishSettings, info)
 		ok, result, status = api:deleteAlbum(info.remoteId)
 	end
 	if not ok and status ~= 404 then
-		LrDialogs.message("Photo Gallery: not deleted on server", tostring(result), "warning")
+		LrDialogs.message("Smugbox: not deleted on server", tostring(result), "warning")
 	end
 end
 
 function PublishTask.deletePhotosFromPublishedCollection(publishSettings, arrayOfPhotoIds, deletedCallback, localCollectionId)
-	local api = GalleryAPI.new(publishSettings.serverUrl, publishSettings.apiKey)
+	local api = SmugboxAPI.new(publishSettings.serverUrl, publishSettings.apiKey)
 	local collection = LrApplication.activeCatalog():getPublishedCollectionByLocalIdentifier(localCollectionId)
 	local albumId = collection and collection:getRemoteId() or nil
 	if not albumId then
@@ -514,7 +514,7 @@ function PublishTask.deletePhotosFromPublishedCollection(publishSettings, arrayO
 		end
 	end
 	if failed > 0 then
-		LrDialogs.message("Photo Gallery: some photos were not deleted on the server", string.format("%d photo(s) failed. See the log for details.", failed), "warning")
+		LrDialogs.message("Smugbox: some photos were not deleted on the server", string.format("%d photo(s) failed. See the log for details.", failed), "warning")
 	end
 end
 
@@ -522,7 +522,7 @@ function PublishTask.imposeSortOrderOnPublishedCollection(publishSettings, info,
 	if not info.remoteId then
 		return false
 	end
-	local api = GalleryAPI.new(publishSettings.serverUrl, publishSettings.apiKey)
+	local api = SmugboxAPI.new(publishSettings.serverUrl, publishSettings.apiKey)
 	local ok, result = api:setOrder(info.remoteId, remoteIdSequence)
 	if not ok then
 		log:warnf("set order: %s", tostring(result))

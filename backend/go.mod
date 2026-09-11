@@ -1,4 +1,4 @@
-module github.com/bege/photogallery/backend
+module github.com/bege/smugbox/backend
 
 go 1.26.0
 

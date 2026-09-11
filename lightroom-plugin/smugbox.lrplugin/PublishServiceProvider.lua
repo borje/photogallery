@@ -1,5 +1,5 @@
 --[[
-Publish service provider table for the Photo Gallery backend.
+Publish service provider table for the Smugbox backend.
 
 Structure follows Adobe's Flickr sample and lrc-immich-plugin: this file
 holds the declarative parts and the settings dialog, PublishTask.lua the
@@ -11,7 +11,7 @@ local LrHttp = import "LrHttp"
 local LrTasks = import "LrTasks"
 local LrView = import "LrView"
 
-local GalleryAPI = require "GalleryAPI"
+local SmugboxAPI = require "SmugboxAPI"
 local PublishTask = require "PublishTask"
 
 local bind = LrView.bind
@@ -81,7 +81,7 @@ end
 function provider.sectionsForTopOfDialog(f, propertyTable)
 	return {
 		{
-			title = "Photo Gallery server",
+			title = "Smugbox server",
 			synopsis = bind { key = "serverUrl", object = propertyTable },
 			bind_to_object = propertyTable,
 
@@ -100,7 +100,7 @@ function provider.sectionsForTopOfDialog(f, propertyTable)
 					value = bind "apiKey",
 					immediate = true,
 					fill_horizontal = 1,
-					tooltip = "Create one on the server with: gallery admin create-api-key",
+					tooltip = "Create one on the server with: smugbox admin create-api-key",
 				},
 			},
 			f:row {
@@ -110,7 +110,7 @@ function provider.sectionsForTopOfDialog(f, propertyTable)
 					action = function()
 						propertyTable.connectionStatus = "Testing..."
 						LrTasks.startAsyncTask(function()
-							local api = GalleryAPI.new(propertyTable.serverUrl, propertyTable.apiKey)
+							local api = SmugboxAPI.new(propertyTable.serverUrl, propertyTable.apiKey)
 							local ok, result = api:ping()
 							if ok then
 								propertyTable.connectionStatus = "Connected"

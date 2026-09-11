@@ -9,8 +9,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/bege/photogallery/backend/internal/db"
-	"github.com/bege/photogallery/backend/internal/storage"
+	"github.com/bege/smugbox/backend/internal/db"
+	"github.com/bege/smugbox/backend/internal/storage"
 )
 
 // GET /api/albums/{slug}/photos/{photo_id}/{variant}[?download=1]

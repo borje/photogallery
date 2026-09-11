@@ -36,7 +36,7 @@ func FromEnv(getenv func(string) string) (Config, error) {
 		DataDir:       get("DATA_DIR", "./data"),
 		FrontendDir:   get("FRONTEND_DIR", ""),
 		PublicBaseURL: strings.TrimRight(get("PUBLIC_BASE_URL", "http://localhost:8080"), "/"),
-		SiteTitle:     get("SITE_TITLE", "Photo Gallery"),
+		SiteTitle:     get("SITE_TITLE", "Smugbox"),
 		LogLevel:      strings.ToLower(get("LOG_LEVEL", "info")),
 		LogFormat:     strings.ToLower(get("LOG_FORMAT", "text")),
 	}

@@ -1,17 +1,17 @@
 # Deployment
 
 One container runs everything: the Go API, image processing and the built
-React frontend. State lives in the `/data` volume (`gallery.db` plus
+React frontend. State lives in the `/data` volume (`smugbox.db` plus
 `photos/`).
 
 ```
 cp deploy/.env.example deploy/.env      # set PUBLIC_BASE_URL
 cd deploy && docker compose up -d --build
-docker compose exec gallery gallery admin create-api-key --label "Lightroom"
+docker compose exec smugbox smugbox admin create-api-key --label "Lightroom"
 ```
 
-Paste the printed key into the Lightroom plug-in (Publishing Manager > Photo
-Gallery). Other admin commands: `list-albums`, `list-api-keys`,
+Paste the printed key into the Lightroom plug-in (Publishing Manager >
+Smugbox). Other admin commands: `list-albums`, `list-api-keys`,
 `revoke-api-key <id>`, `set-password <slug> [--clear]`, `gc [--dry-run]`.
 
 ## Reverse proxy
@@ -34,11 +34,11 @@ itself; add HSTS at the proxy.
 
 `deploy/backup.sh DATA_DIR DEST` snapshots the database with `VACUUM INTO`
 and rsyncs photos and snapshot to `DEST`. Run it from cron on the host
-(mount the volume path, e.g. `/var/lib/docker/volumes/deploy_gallery-data/_data`).
+(mount the volume path, e.g. `/var/lib/docker/volumes/deploy_smugbox-data/_data`).
 
 ## Development
 
 ```
-cd backend && DATA_DIR=/tmp/gallery go run ./cmd/gallery serve
+cd backend && DATA_DIR=/tmp/smugbox go run ./cmd/smugbox serve
 cd frontend && npm run dev          # http://localhost:5173, proxies /api to :8080
 ```

@@ -13,7 +13,7 @@ if prefs.logging == nil then
 	prefs.logging = true
 end
 
-local log = LrLogger("GalleryPublish")
+local log = LrLogger("SmugboxPublish")
 if prefs.logging then
 	log:enable("logfile")
 else
@@ -23,4 +23,4 @@ end
 _G.log = log
 _G.prefs = prefs
 
-log:info("Photo Gallery plug-in loaded")
+log:info("Smugbox plug-in loaded")

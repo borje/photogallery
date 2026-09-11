@@ -32,7 +32,7 @@ function Util.safeDelete(path)
 	end
 end
 
--- Folder where LrLogger writes GalleryPublish.log.
+-- Folder where LrLogger writes SmugboxPublish.log.
 function Util.logFolder()
 	local home = LrPathUtils.getStandardFilePath("home")
 	local major = 0
@@ -52,7 +52,7 @@ function Util.logFolder()
 end
 
 function Util.logFilePath()
-	return LrPathUtils.child(Util.logFolder(), "GalleryPublish.log")
+	return LrPathUtils.child(Util.logFolder(), "SmugboxPublish.log")
 end
 
 return Util

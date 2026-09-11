@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"regexp"
 
-	"github.com/bege/photogallery/backend/internal/auth"
-	"github.com/bege/photogallery/backend/internal/db"
+	"github.com/bege/smugbox/backend/internal/auth"
+	"github.com/bege/smugbox/backend/internal/db"
 )
 
 var slugRe = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)

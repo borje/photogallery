@@ -4,7 +4,7 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/bege/photogallery/backend/internal/db"
+	"github.com/bege/smugbox/backend/internal/db"
 )
 
 type folderListItem struct {

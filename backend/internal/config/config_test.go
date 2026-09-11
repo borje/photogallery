@@ -14,7 +14,7 @@ func TestDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.ListenAddr != ":8080" || c.DataDir != "./data" || c.MaxUploadBytes != 100<<20 || c.LogLevel != "info" || c.LogFormat != "text" || c.PublicBaseURL != "http://localhost:8080" || c.SiteTitle != "Photo Gallery" || len(c.TrustedProxies) != 0 {
+	if c.ListenAddr != ":8080" || c.DataDir != "./data" || c.MaxUploadBytes != 100<<20 || c.LogLevel != "info" || c.LogFormat != "text" || c.PublicBaseURL != "http://localhost:8080" || c.SiteTitle != "Smugbox" || len(c.TrustedProxies) != 0 {
 		t.Fatalf("defaults: %+v", c)
 	}
 }

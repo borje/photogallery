@@ -1,4 +1,4 @@
-# Photo Gallery
+# Smugbox
 
 A self-hosted photo gallery published straight from Lightroom Classic.
 Publish a collection in Lightroom and it becomes an album on your own
@@ -20,7 +20,7 @@ The design document with all decisions is
 
 ## How it works
 
-1. In Lightroom you create a published collection under the **Photo Gallery**
+1. In Lightroom you create a published collection under the **Smugbox**
    service, optionally give it a password, and click *Publish*. Editing the
    collection's settings afterwards lets you pick a cover photo; otherwise the
    first photo in the collection's sort order is used.
@@ -41,12 +41,12 @@ The design document with all decisions is
 ```
 cp deploy/.env.example deploy/.env      # set PUBLIC_BASE_URL
 cd deploy && docker compose up -d --build
-docker compose exec gallery gallery admin create-api-key --label "Lightroom"
+docker compose exec smugbox smugbox admin create-api-key --label "Lightroom"
 ```
 
 Then in Lightroom Classic: *File > Plug-in Manager > Add* and choose
-`lightroom-plugin/gallery.lrplugin`. In the Library module set up the
-**Photo Gallery** publish service with your server URL and the API key,
+`lightroom-plugin/smugbox.lrplugin`. In the Library module set up the
+**Smugbox** publish service with your server URL and the API key,
 click *Test connection*, and publish your first collection.
 
 Put a TLS-terminating reverse proxy in front of the container. See
@@ -54,16 +54,16 @@ Put a TLS-terminating reverse proxy in front of the container. See
 
 ## Admin commands
 
-Run inside the container (`docker compose exec gallery gallery admin ...`)
+Run inside the container (`docker compose exec smugbox smugbox admin ...`)
 or locally with `DATA_DIR` set:
 
 ```
-gallery admin create-api-key --label "Lightroom laptop"
-gallery admin list-api-keys
-gallery admin revoke-api-key <id>
-gallery admin list-albums
-gallery admin set-password <slug> [--clear]
-gallery admin gc [--dry-run]           # remove orphaned files
+smugbox admin create-api-key --label "Lightroom laptop"
+smugbox admin list-api-keys
+smugbox admin revoke-api-key <id>
+smugbox admin list-albums
+smugbox admin set-password <slug> [--clear]
+smugbox admin gc [--dry-run]           # remove orphaned files
 ```
 
 ## Development
@@ -73,7 +73,7 @@ Requirements: Go 1.26, `libvips-dev` and `pkg-config`, Node 22.
 ```
 # backend on :8080
 cd backend
-DATA_DIR=/tmp/gallery go run ./cmd/gallery serve
+DATA_DIR=/tmp/smugbox go run ./cmd/smugbox serve
 go test ./...
 
 # frontend on :5173, proxies /api to :8080

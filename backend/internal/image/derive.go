@@ -5,7 +5,7 @@ import (
 
 	vips "github.com/cshum/vipsgen/vips816"
 
-	"github.com/bege/photogallery/backend/internal/storage"
+	"github.com/bege/smugbox/backend/internal/storage"
 )
 
 // Size describes one display variant: long-side pixels and JPEG quality.

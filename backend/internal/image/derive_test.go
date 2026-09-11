@@ -8,7 +8,7 @@ import (
 
 	vips "github.com/cshum/vipsgen/vips816"
 
-	"github.com/bege/photogallery/backend/internal/storage"
+	"github.com/bege/smugbox/backend/internal/storage"
 )
 
 func loadDims(t *testing.T, path string) (w, h int, img *vips.Image) {

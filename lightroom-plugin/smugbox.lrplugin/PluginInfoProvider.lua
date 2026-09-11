@@ -14,13 +14,13 @@ return {
 		propertyTable.logging = prefs.logging and true or false
 		return {
 			{
-				title = "Photo Gallery",
+				title = "Smugbox",
 				bind_to_object = propertyTable,
 				f:row {
 					f:static_text { title = "Publishes collections as albums to your self-hosted gallery." },
 				},
 				f:row {
-					f:checkbox { title = "Write a log file (GalleryPublish.log)", value = bind "logging" },
+					f:checkbox { title = "Write a log file (SmugboxPublish.log)", value = bind "logging" },
 				},
 				f:row {
 					f:static_text { title = Util.logFilePath(), truncation = "middle", fill_horizontal = 1 },

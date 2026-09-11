@@ -2,23 +2,23 @@
 
 Lightroom's Lua environment has no test runner, so the plug-in is verified by
 hand against a running backend. The backend tests in `backend/internal/api`
-define what the plug-in must send; `GalleryAPI.lua` is the only file that
+define what the plug-in must send; `SmugboxAPI.lua` is the only file that
 talks HTTP and can be reviewed on its own.
 
 ## Setup
 
 1. Start the backend (locally or in Docker) and create an API key:
-   `gallery admin create-api-key --label "Lightroom"`.
+   `smugbox admin create-api-key --label "Lightroom"`.
 2. Lightroom Classic: File > Plug-in Manager > Add, select
-   `lightroom-plugin/gallery.lrplugin`. Leave "Write a log file" on. The panel
-   shows where `GalleryPublish.log` is written.
-3. Library module > Publish Services > Photo Gallery > Set Up. Enter the
+   `lightroom-plugin/smugbox.lrplugin`. Leave "Write a log file" on. The panel
+   shows where `SmugboxPublish.log` is written.
+3. Library module > Publish Services > Smugbox > Set Up. Enter the
    server URL and API key, click **Test connection** (expect "Connected").
    Check that Image Sizing has "Resize to fit" unchecked and File Settings
    is JPEG/sRGB. Save.
 
 Check the log after every step below. Server state can be inspected with
-`gallery admin list-albums` and `curl <server>/api/albums`.
+`smugbox admin list-albums` and `curl <server>/api/albums`.
 
 ## Create and publish
 
@@ -63,7 +63,7 @@ Check the log after every step below. Server state can be inspected with
       photo_count, `/cover` returns a tiny blurred image.
 - [ ] Edit collection settings again without changing the password (for
       example change the description). Expect: `password_version` unchanged
-      (`gallery admin list-albums` or sqlite3), so unlocked visitors stay in.
+      (`smugbox admin list-albums` or sqlite3), so unlocked visitors stay in.
 - [ ] Change the password. Expect: `password_version` incremented.
 - [ ] Clear the password. Expect: album public again.
 - [ ] Turn off "Show in the public album list". Expect: missing from
@@ -97,12 +97,12 @@ Check the log after every step below. Server state can be inspected with
 
 - [ ] Delete the published collection in Lightroom. Expect: album gone from
       the server and its directory removed under `DATA_DIR/photos`.
-- [ ] `gallery admin gc --dry-run` reports nothing to clean.
+- [ ] `smugbox admin gc --dry-run` reports nothing to clean.
 
 ## Album sets (nested folders)
 
 - [ ] Create a published collection set "Travel", and inside it a nested set
-      "2024". Publish a collection from inside "2024". Expect: `gallery admin
+      "2024". Publish a collection from inside "2024". Expect: `smugbox admin
       list-albums` shows a PATH of `/travel/2024` for the album; `GET
       /api/folders/travel` lists a `2024` child folder; `GET
       /api/folders/2024` lists the album with a breadcrumb back to `travel`.
@@ -118,7 +118,7 @@ Check the log after every step below. Server state can be inspected with
 - [ ] Delete the "Travel" set while it still contains an album. Expect:
       Lightroom's usual per-collection delete confirmation, then the set,
       its album and the album's photo files are all gone from the server;
-      `gallery admin gc --dry-run` reports nothing left over.
+      `smugbox admin gc --dry-run` reports nothing left over.
 - [ ] Delete an album's backend row directly with curl, then publish a new
       photo into a *different* collection inside the same still-existing
       set. Expect: only the album is recreated; the set's folder id on the
@@ -128,5 +128,5 @@ Check the log after every step below. Server state can be inspected with
 
 - [ ] Stop the backend and publish. Expect: a clear error per photo, the
       photos stay in the re-publish queue, nothing crashes.
-- [ ] Revoke the API key (`gallery admin revoke-api-key`) and publish.
+- [ ] Revoke the API key (`smugbox admin revoke-api-key`) and publish.
       Expect: "API key rejected" message; Test connection fails.

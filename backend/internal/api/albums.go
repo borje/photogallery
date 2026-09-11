@@ -5,8 +5,8 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/bege/photogallery/backend/internal/db"
-	"github.com/bege/photogallery/backend/internal/storage"
+	"github.com/bege/smugbox/backend/internal/db"
+	"github.com/bege/smugbox/backend/internal/storage"
 )
 
 type albumListItem struct {

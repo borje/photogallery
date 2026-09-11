@@ -13,7 +13,7 @@ describe('FolderPage', () => {
     await screen.findByRole('link', { name: 'Iceland' })
     expect(screen.queryByRole('heading', { level: 1 })).toBeNull()
     const nav = screen.getByRole('navigation', { name: 'Breadcrumb' })
-    expect(within(nav).getByRole('link', { name: 'Gallery' })).toHaveAttribute('href', '/')
+    expect(within(nav).getByRole('link', { name: 'Smugbox' })).toHaveAttribute('href', '/')
     expect(within(nav).getByText('Travel')).toHaveAttribute('aria-current', 'page')
     expect(within(nav).queryByRole('link', { name: 'Travel' })).toBeNull()
   })

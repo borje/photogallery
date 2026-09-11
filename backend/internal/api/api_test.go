@@ -21,11 +21,11 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 
-	"github.com/bege/photogallery/backend/internal/auth"
-	"github.com/bege/photogallery/backend/internal/config"
-	"github.com/bege/photogallery/backend/internal/db"
-	imgpkg "github.com/bege/photogallery/backend/internal/image"
-	"github.com/bege/photogallery/backend/internal/storage"
+	"github.com/bege/smugbox/backend/internal/auth"
+	"github.com/bege/smugbox/backend/internal/config"
+	"github.com/bege/smugbox/backend/internal/db"
+	imgpkg "github.com/bege/smugbox/backend/internal/image"
+	"github.com/bege/smugbox/backend/internal/storage"
 )
 
 func TestMain(m *testing.M) {
@@ -50,7 +50,7 @@ type env struct {
 func newEnv(t *testing.T) *env {
 	t.Helper()
 	dir := t.TempDir()
-	database, err := db.Open(context.Background(), filepath.Join(dir, "gallery.db"))
+	database, err := db.Open(context.Background(), filepath.Join(dir, "smugbox.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

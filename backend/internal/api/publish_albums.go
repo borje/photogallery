@@ -7,8 +7,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/bege/photogallery/backend/internal/auth"
-	"github.com/bege/photogallery/backend/internal/db"
+	"github.com/bege/smugbox/backend/internal/auth"
+	"github.com/bege/smugbox/backend/internal/db"
 )
 
 const (

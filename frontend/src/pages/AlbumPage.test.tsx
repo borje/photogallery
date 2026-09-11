@@ -138,7 +138,7 @@ describe('AlbumPage', () => {
     expect(await screen.findByRole('heading', { name: 'Iceland' })).toBeInTheDocument()
     const nav = screen.getByRole('navigation', { name: 'Breadcrumb' })
     expect(within(nav).getByRole('link', { name: 'Travel' })).toHaveAttribute('href', '/f/travel')
-    expect(within(nav).getByRole('link', { name: 'Gallery' })).toHaveAttribute('href', '/')
+    expect(within(nav).getByRole('link', { name: 'Smugbox' })).toHaveAttribute('href', '/')
     // The current album ends the trail as plain text, not a link.
     expect(within(nav).getByText('Iceland')).toHaveAttribute('aria-current', 'page')
     expect(within(nav).queryByRole('link', { name: 'Iceland' })).toBeNull()

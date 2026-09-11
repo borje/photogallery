@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/bege/photogallery/backend/internal/auth"
-	"github.com/bege/photogallery/backend/internal/db"
+	"github.com/bege/smugbox/backend/internal/auth"
+	"github.com/bege/smugbox/backend/internal/db"
 )
 
 // Unlock attempts allowed per (client IP, slug): a burst of 5, refilling 5/min.

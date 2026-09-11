@@ -15,10 +15,10 @@ import (
 	"github.com/google/uuid"
 	"golang.org/x/term"
 
-	"github.com/bege/photogallery/backend/internal/auth"
-	"github.com/bege/photogallery/backend/internal/config"
-	"github.com/bege/photogallery/backend/internal/db"
-	"github.com/bege/photogallery/backend/internal/storage"
+	"github.com/bege/smugbox/backend/internal/auth"
+	"github.com/bege/smugbox/backend/internal/config"
+	"github.com/bege/smugbox/backend/internal/db"
+	"github.com/bege/smugbox/backend/internal/storage"
 )
 
 func admin(cfg config.Config, args []string) error {
@@ -75,7 +75,7 @@ func createAPIKey(ctx context.Context, database *db.DB, args []string) error {
 
 func revokeAPIKey(ctx context.Context, database *db.DB, args []string) error {
 	if len(args) != 1 {
-		return errors.New("usage: gallery admin revoke-api-key <id>")
+		return errors.New("usage: smugbox admin revoke-api-key <id>")
 	}
 	if err := database.RevokeAPIKey(ctx, args[0], time.Now()); err != nil {
 		if errors.Is(err, db.ErrNotFound) {
@@ -166,7 +166,7 @@ func setPassword(ctx context.Context, database *db.DB, args []string) error {
 		return err
 	}
 	if fs.NArg() != 1 {
-		return errors.New("usage: gallery admin set-password <slug> [--clear]")
+		return errors.New("usage: smugbox admin set-password <slug> [--clear]")
 	}
 	album, err := database.GetAlbumBySlug(ctx, fs.Arg(0))
 	if err != nil {
@@ -208,7 +208,7 @@ func setPassword(ctx context.Context, database *db.DB, args []string) error {
 
 func deleteAlbum(ctx context.Context, database *db.DB, store *storage.Store, args []string) error {
 	if len(args) != 1 {
-		return errors.New("usage: gallery admin delete-album <slug>")
+		return errors.New("usage: smugbox admin delete-album <slug>")
 	}
 	album, err := database.GetAlbumBySlug(ctx, args[0])
 	if err != nil {

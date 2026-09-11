@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bege/photogallery/backend/internal/auth"
+	"github.com/bege/smugbox/backend/internal/auth"
 )
 
 func (e *env) unlock(slug, password string, cookie *http.Cookie) *httptest.ResponseRecorder {
