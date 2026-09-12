@@ -77,8 +77,9 @@ type headCapture struct {
 }
 
 func (h headCapture) Write(p []byte) (int, error) {
-	for h.up.headLen < len(h.up.head) && h.up.headLen < len(p) {
-		h.up.head[h.up.headLen] = p[h.up.headLen]
+	// headLen counts bytes across calls; i indexes this call's chunk.
+	for i := 0; h.up.headLen < len(h.up.head) && i < len(p); i++ {
+		h.up.head[h.up.headLen] = p[i]
 		h.up.headLen++
 	}
 	return len(p), nil
