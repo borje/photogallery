@@ -44,8 +44,9 @@ type Server struct {
 	deriveSem chan struct{} // bounds concurrent libvips derivative generation
 	zipSem    chan struct{} // bounds concurrent zip downloads
 
-	sessions *auth.Sessions
-	limiter  *auth.RateLimiter
+	sessions  *auth.Sessions
+	limiter   *auth.RateLimiter // per (ip, slug)
+	ipLimiter *auth.RateLimiter // per ip
 }
 
 // jsonTimeout bounds handlers that produce small JSON responses. Uploads
@@ -77,7 +78,8 @@ func New(d Deps) (*Server, error) {
 		return nil, fmt.Errorf("api: resolve session secret: %w", err)
 	}
 	s.sessions = auth.NewSessions(secret, sessionTTL*time.Second, s.now)
-	s.limiter = auth.NewRateLimiter(unlockBurst, unlockRefillPerMin, s.now)
+	s.limiter = auth.NewRateLimiter(unlockBurst, unlockRefillPerMin, unlockMaxKeys, s.now)
+	s.ipLimiter = auth.NewRateLimiter(unlockIPBurst, unlockIPRefillPerMin, unlockMaxKeys, s.now)
 
 	mux := http.NewServeMux()
 	s.routes(mux)

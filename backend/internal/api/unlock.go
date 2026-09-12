@@ -5,17 +5,24 @@ import (
 	"math"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/bege/smugbox/backend/internal/auth"
 	"github.com/bege/smugbox/backend/internal/db"
 )
 
-// Unlock attempts allowed per (client IP, slug): a burst of 5, refilling 5/min.
+// Unlock attempts are limited twice: per client IP across all albums (which
+// bounds bcrypt work and limiter memory per attacker) and per (IP, slug).
+// Behind a proxy without TRUSTED_PROXY_CIDR every visitor shares the proxy's
+// IP, so the IP bucket is generous.
 const (
-	unlockBurst         = 5
-	unlockRefillPerMin  = 5.0
-	sessionTTL          = 24 * 60 * 60 // seconds
-	maxUnlockPasswordLn = 256
+	unlockBurst          = 5
+	unlockRefillPerMin   = 5.0
+	unlockIPBurst        = 30
+	unlockIPRefillPerMin = 30.0
+	unlockMaxKeys        = 10000        // per limiter
+	sessionTTL           = 24 * 60 * 60 // seconds
+	maxUnlockPasswordLn  = 256
 )
 
 // POST /api/albums/{slug}/unlock {"password": "..."}
@@ -27,9 +34,19 @@ func (s *Server) unlockAlbum(w http.ResponseWriter, r *http.Request) {
 	slug := r.PathValue("slug")
 	w.Header().Set("Cache-Control", "no-store")
 
-	if ok, wait := s.limiter.Allow(s.clientIP(r) + "|" + slug); !ok {
-		w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(wait.Seconds()))))
-		writeError(w, http.StatusTooManyRequests, "rate_limited", "too many attempts, try again later")
+	// A malformed slug can never name an album; refuse it before it costs a
+	// limiter key or a bcrypt round. Same status as an unknown album.
+	if !validSlug(slug) {
+		writeError(w, http.StatusUnauthorized, "invalid_password", "")
+		return
+	}
+	ip := s.clientIP(r)
+	if ok, wait := s.ipLimiter.Allow(ip); !ok {
+		rateLimited(w, wait)
+		return
+	}
+	if ok, wait := s.limiter.Allow(ip + "|" + slug); !ok {
+		rateLimited(w, wait)
 		return
 	}
 
@@ -43,14 +60,10 @@ func (s *Server) unlockAlbum(w http.ResponseWriter, r *http.Request) {
 		in.Password = in.Password[:maxUnlockPasswordLn]
 	}
 
-	var album *db.Album
-	if validSlug(slug) {
-		a, err := s.db.GetAlbumBySlug(r.Context(), slug)
-		if err != nil && !errors.Is(err, db.ErrNotFound) {
-			s.internalError(w, r, err)
-			return
-		}
-		album = a
+	album, err := s.db.GetAlbumBySlug(r.Context(), slug)
+	if err != nil && !errors.Is(err, db.ErrNotFound) {
+		s.internalError(w, r, err)
+		return
 	}
 	if album != nil && !album.Protected() {
 		w.WriteHeader(http.StatusNoContent)
@@ -87,4 +100,9 @@ func (s *Server) unlockAlbum(w http.ResponseWriter, r *http.Request) {
 		SameSite: http.SameSiteStrictMode,
 	})
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func rateLimited(w http.ResponseWriter, wait time.Duration) {
+	w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(wait.Seconds()))))
+	writeError(w, http.StatusTooManyRequests, "rate_limited", "too many attempts, try again later")
 }

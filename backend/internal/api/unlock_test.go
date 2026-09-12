@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -234,5 +235,51 @@ func TestUnlockRateLimitAndTrustedProxy(t *testing.T) {
 	}
 	if ip := e.srv.clientIP(httptest.NewRequest(http.MethodGet, "/", nil)); ip != "192.0.2.1" {
 		t.Fatalf("clientIP without header: %q", ip)
+	}
+}
+
+func TestUnlockIPLimitAcrossSlugs(t *testing.T) {
+	e := newEnv(t)
+	post := func(slug string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/api/albums/"+slug+"/unlock", strings.NewReader(`{"password":"nope"}`))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		e.srv.ServeHTTP(rec, req)
+		return rec
+	}
+	// One IP spraying many well-formed slugs must hit the per-IP bucket,
+	// and the per-slug map must not grow past what that bucket admits.
+	limited := 0
+	for i := 0; i < 50; i++ {
+		if rec := post(fmt.Sprintf("guess-%d", i)); rec.Code == 429 {
+			limited++
+		} else if rec.Code != 401 {
+			t.Fatalf("slug %d: %d %s", i, rec.Code, rec.Body.String())
+		}
+	}
+	if limited != 50-unlockIPBurst {
+		t.Fatalf("429s = %d, want %d", limited, 50-unlockIPBurst)
+	}
+	if n := e.srv.limiter.Len(); n != unlockIPBurst {
+		t.Fatalf("per-slug buckets = %d, want %d", n, unlockIPBurst)
+	}
+	if n := e.srv.ipLimiter.Len(); n != 1 {
+		t.Fatalf("ip buckets = %d, want 1", n)
+	}
+
+	// Malformed slugs are refused before either limiter or bcrypt runs.
+	e.now = e.now.Add(time.Hour)
+	for _, slug := range []string{"..%2Fx", "UPPER", strings.Repeat("a", 200), "trailing-"} {
+		if rec := post(slug); rec.Code != 401 {
+			t.Fatalf("slug %q: %d", slug, rec.Code)
+		}
+	}
+	if n := e.srv.limiter.Len(); n != unlockIPBurst {
+		t.Fatalf("malformed slugs created buckets: %d", n)
+	}
+	// The IP bucket still has the one entry from before; a malformed slug
+	// does not consume from it either.
+	if rec := post("real-slug"); rec.Code != 401 {
+		t.Fatalf("after hour: %d", rec.Code)
 	}
 }

@@ -82,7 +82,7 @@ func TestSessionGrantsReplaceAndCap(t *testing.T) {
 
 func TestRateLimiter(t *testing.T) {
 	now := time.Date(2026, 9, 10, 12, 0, 0, 0, time.UTC)
-	l := NewRateLimiter(5, 5, func() time.Time { return now })
+	l := NewRateLimiter(5, 5, 100, func() time.Time { return now })
 	for i := 0; i < 5; i++ {
 		if ok, _ := l.Allow("k"); !ok {
 			t.Fatalf("attempt %d denied", i+1)
