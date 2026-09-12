@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -216,8 +217,21 @@ func (s *Server) ingest(w http.ResponseWriter, r *http.Request, a *db.Album, exi
 			s.internalError(w, r, err)
 			return
 		}
-		info, err := image.Probe(up.staged.Path())
+		// The thumb probeUpload renders is thrown away; the worker renders
+		// the copy that is kept, which leaves the original as the only file
+		// this request commits.
+		thumb, err := s.store.NewStaged()
 		if err != nil {
+			s.internalError(w, r, err)
+			return
+		}
+		defer thumb.Abort()
+		info, err := s.probeUpload(r.Context(), up.staged.Path(), thumb.Path())
+		if err != nil {
+			if r.Context().Err() != nil {
+				return // the client gave up; there is nobody to answer
+			}
+			s.log.Warn("probe upload", "album", a.ID, "photo", photo.ID, "err", err)
 			writeError(w, http.StatusUnprocessableEntity, "invalid_image", err.Error())
 			return
 		}
@@ -229,24 +243,6 @@ func (s *Server) ingest(w http.ResponseWriter, r *http.Request, a *db.Album, exi
 			if fn := sanitizeFilename(up.filename); fn != "" {
 				photo.Filename = fn
 			}
-		}
-
-		// Render a thumb and throw it away: this decodes the whole file, so
-		// a corrupt JPEG is rejected here rather than by the worker after
-		// the client was told 201. The worker renders the copy that is kept,
-		// which leaves the original as the only file this request commits.
-		thumb, err := s.store.NewStaged()
-		if err != nil {
-			s.internalError(w, r, err)
-			return
-		}
-		defer thumb.Abort()
-		if _, err := image.Derive(up.staged.Path(), info, []storage.Variant{image.Validate}, func(storage.Variant) (string, error) {
-			return thumb.Path(), nil
-		}); err != nil {
-			s.log.Warn("derive thumb", "album", a.ID, "photo", photo.ID, "err", err)
-			writeError(w, http.StatusUnprocessableEntity, "invalid_image", "could not process image")
-			return
 		}
 		if !isNew {
 			// Hide the photo while its stored variants describe the old
@@ -286,6 +282,34 @@ func (s *Server) ingest(w http.ResponseWriter, r *http.Request, a *db.Album, exi
 		status = http.StatusCreated
 	}
 	writeJSON(w, status, map[string]string{"id": photo.ID, "url": s.photoURL(a.Slug, photo.ID)})
+}
+
+// probeUpload reads the dimensions of the JPEG at src and renders a thumb
+// of it to dst, which decodes the whole file so that an unreadable JPEG is
+// rejected in the request instead of by the worker after the client was
+// told 201. Neither file is committed.
+//
+// This is the only libvips work left in an upload request, and it holds
+// deriveSem for its duration: otherwise every concurrent upload runs a
+// pipeline of its own, which the memory of the machine this runs on does
+// not allow. The token is released by defer, so a panic cannot leak it, and
+// a client that gives up while queueing does not keep waiting.
+func (s *Server) probeUpload(ctx context.Context, src, dst string) (image.Info, error) {
+	select {
+	case s.deriveSem <- struct{}{}:
+	case <-ctx.Done():
+		return image.Info{}, ctx.Err()
+	}
+	defer func() { <-s.deriveSem }()
+
+	info, err := image.Probe(src)
+	if err != nil {
+		return info, err
+	}
+	_, err = image.Derive(src, info, []storage.Variant{image.Validate}, func(storage.Variant) (string, error) {
+		return dst, nil
+	})
+	return info, err
 }
 
 // applyMetadata copies the optional text fields onto photo, validating them.

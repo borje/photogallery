@@ -1,6 +1,28 @@
 package api
 
-import "testing"
+import (
+	"context"
+	"errors"
+	"testing"
+)
+
+// probeUpload queues on deriveSem; a client that has given up must not be
+// left waiting for a token, and the token must not leak when it gives up.
+func TestProbeUploadGivesUpWithTheClient(t *testing.T) {
+	e := newEnvNoWorker(t)
+	s := e.srv
+	for range cap(s.deriveSem) {
+		s.deriveSem <- struct{}{}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := s.probeUpload(ctx, "src.jpg", "dst.jpg"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("probeUpload on a cancelled request = %v, want context.Canceled", err)
+	}
+	if len(s.deriveSem) != cap(s.deriveSem) {
+		t.Fatalf("deriveSem holds %d tokens, want %d", len(s.deriveSem), cap(s.deriveSem))
+	}
+}
 
 func TestHeadCaptureAcrossShortWrites(t *testing.T) {
 	cases := []struct {

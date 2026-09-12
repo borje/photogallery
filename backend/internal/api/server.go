@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"runtime"
 	"time"
 
 	"github.com/bege/smugbox/backend/internal/auth"
@@ -41,8 +42,9 @@ type Server struct {
 	rand    io.Reader
 	handler http.Handler
 
-	variants *variantWorker // renders display variants after upload; see Run
-	zipSem   chan struct{}  // bounds concurrent zip downloads
+	variants  *variantWorker // renders display variants after upload; see Run
+	zipSem    chan struct{}  // bounds concurrent zip downloads
+	deriveSem chan struct{}  // bounds libvips work inside upload requests
 
 	sessions  *auth.Sessions
 	limiter   *auth.RateLimiter // per (ip, slug)
@@ -57,7 +59,8 @@ const jsonTimeout = 30 * time.Second
 func New(d Deps) (*Server, error) {
 	s := &Server{
 		db: d.DB, store: d.Store, cfg: d.Cfg, log: d.Log, now: d.Now, rand: d.Rand,
-		zipSem: make(chan struct{}, maxConcurrentZips),
+		zipSem:    make(chan struct{}, maxConcurrentZips),
+		deriveSem: make(chan struct{}, runtime.NumCPU()),
 	}
 	s.variants = newVariantWorker(s)
 	if s.log == nil {
