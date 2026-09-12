@@ -67,6 +67,12 @@ smugbox admin set-password <slug> [--clear]
 smugbox admin gc [--dry-run]           # remove orphaned files
 ```
 
+`gc` removes photo directories without a database row, stray entries under
+`photos/`, and empty album directories and `incoming/` files older than an
+hour. It is safe to run while the server is up. Note that every `admin`
+command opens the database and applies pending migrations, so run the
+upgraded binary's `admin` only when you are ready to upgrade `serve` too.
+
 ## Development
 
 Requirements: Go 1.26, `libvips-dev` and `pkg-config`, Node 22.

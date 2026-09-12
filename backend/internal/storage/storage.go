@@ -240,41 +240,94 @@ func (s *Store) RemoveAlbum(albumID string) error {
 	return nil
 }
 
-// Orphans returns photo directories (and stray entries under photos/) for
-// which known reports false. Album directories without any photo directory
-// are reported too.
-func (s *Store) Orphans(known func(albumID, photoID string) bool) ([]string, error) {
+// PhotoDir is a photo directory found under photos/<album>/<photo>.
+type PhotoDir struct {
+	AlbumID, PhotoID string
+	Path             string
+}
+
+// DirInfo is a directory with the modification time observed while walking.
+type DirInfo struct {
+	Path    string
+	ModTime time.Time
+}
+
+// Listing is a point-in-time view of photos/ taken by Walk. Callers that
+// reconcile against the database take the Listing first and the database
+// snapshot second: a photo committed in between is then in the snapshot and
+// kept, and one committed afterwards is not in the Listing at all, so a
+// concurrent upload can never look orphaned.
+type Listing struct {
+	Photos    []PhotoDir // valid UUID directories at both levels
+	Junk      []string   // non-directory or non-UUID entries at either level
+	EmptyDirs []DirInfo  // album directories with no entries
+}
+
+// Walk lists photos/ without judging what is orphaned.
+func (s *Store) Walk() (*Listing, error) {
 	albums, err := os.ReadDir(s.photos)
 	if err != nil {
 		return nil, err
 	}
-	var out []string
+	l := &Listing{}
 	for _, a := range albums {
 		adir := filepath.Join(s.photos, a.Name())
 		if !a.IsDir() || !validID(a.Name()) {
-			out = append(out, adir)
+			l.Junk = append(l.Junk, adir)
 			continue
 		}
 		entries, err := os.ReadDir(adir)
 		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				continue // removed while walking
+			}
 			return nil, err
 		}
 		if len(entries) == 0 {
-			out = append(out, adir)
+			info, err := a.Info()
+			if err != nil {
+				if errors.Is(err, fs.ErrNotExist) {
+					continue
+				}
+				return nil, err
+			}
+			l.EmptyDirs = append(l.EmptyDirs, DirInfo{Path: adir, ModTime: info.ModTime()})
 			continue
 		}
 		for _, p := range entries {
 			pdir := filepath.Join(adir, p.Name())
-			if !p.IsDir() || !validID(p.Name()) || !known(a.Name(), p.Name()) {
-				out = append(out, pdir)
+			if !p.IsDir() || !validID(p.Name()) {
+				l.Junk = append(l.Junk, pdir)
+				continue
 			}
+			l.Photos = append(l.Photos, PhotoDir{AlbumID: a.Name(), PhotoID: p.Name(), Path: pdir})
 		}
 	}
-	return out, nil
+	return l, nil
+}
+
+// Orphans returns the paths to remove: junk, photo directories for which
+// known reports false, and empty album directories older than minAge. The
+// age guard protects a Commit that has just created the album directory and
+// is about to rename the first file into it.
+func (l *Listing) Orphans(known func(albumID, photoID string) bool, now time.Time, minAge time.Duration) []string {
+	out := append([]string(nil), l.Junk...)
+	for _, p := range l.Photos {
+		if !known(p.AlbumID, p.PhotoID) {
+			out = append(out, p.Path)
+		}
+	}
+	for _, d := range l.EmptyDirs {
+		if now.Sub(d.ModTime) > minAge {
+			out = append(out, d.Path)
+		}
+	}
+	return out
 }
 
 // StaleIncoming returns staging files older than maxAge, left behind by
-// crashes mid-upload.
+// crashes mid-upload. A file still being written has a fresh mtime, so with
+// an hour's margin this is safe next to a running server.
 func (s *Store) StaleIncoming(now time.Time, maxAge time.Duration) ([]string, error) {
 	entries, err := os.ReadDir(s.incoming)
 	if err != nil {
