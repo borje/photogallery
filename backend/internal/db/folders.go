@@ -175,7 +175,7 @@ func scanFolderSummary(r rowScanner) (*FolderSummary, error) {
 
 // ListChildFolders returns the immediate child folders of parentID (""
 // meaning root) that have at least one listed album somewhere in their
-// subtree, newest-content first. Each summary's cover is the newest listed
+// subtree, ordered by name. Each summary's cover is the newest listed
 // album anywhere beneath it.
 func (d *DB) ListChildFolders(ctx context.Context, parentID string) ([]*FolderSummary, error) {
 	rows, err := d.QueryContext(ctx, `
@@ -196,7 +196,7 @@ func (d *DB) ListChildFolders(ctx context.Context, parentID string) ([]*FolderSu
 		       COALESCE((SELECT MAX(taken_to) FROM av WHERE av.root_id = f.id), '')
 		  FROM folders f
 		 WHERE f.parent_id IS ? AND EXISTS (SELECT 1 FROM av WHERE av.root_id = f.id)
-		 ORDER BY 8 DESC, f.created_at DESC`, nullIfEmpty(parentID), nullIfEmpty(parentID))
+		 ORDER BY f.name`, nullIfEmpty(parentID), nullIfEmpty(parentID))
 	if err != nil {
 		return nil, fmt.Errorf("list child folders: %w", err)
 	}
