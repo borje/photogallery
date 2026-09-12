@@ -212,8 +212,8 @@ function PublishTask.metadataFields(photo, renderedPath)
 
 	local keywords = {}
 	local kw = photo:getFormattedMetadata("keywordTagsForExport") or ""
-	for k in string.gmatch(kw, "[^,]+") do
-		k = Util.trim(k)
+	for raw in string.gmatch(kw, "[^,]+") do
+		local k = Util.trim(raw)
 		if k ~= "" then
 			table.insert(keywords, k)
 		end
