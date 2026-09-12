@@ -127,3 +127,10 @@ cd tools/loadtest
 - `GET /api/healthz`.
 
 Errors are JSON: `{"error": "snake_case_code", "message": "optional detail"}`.
+
+An upload is acknowledged as soon as the original and its thumbnail are on
+disk; the other display variants are rendered by a background worker in the
+`serve` process, so Lightroom only waits for the transfer. A photo is hidden
+from visitors until its variants exist. The pending state lives in the
+database (`photos.variants_ready`), so variants left unfinished by a crash or
+restart are rendered when the server next starts.

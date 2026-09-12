@@ -38,7 +38,7 @@ func TestDeriveVariants(t *testing.T) {
 		t.Fatalf("probe: %+v %v", info, err)
 	}
 	paths := map[storage.Variant]string{}
-	produced, err := Derive(src, info, func(v storage.Variant) (string, error) {
+	produced, err := Derive(src, info, All, func(v storage.Variant) (string, error) {
 		p := filepath.Join(dir, string(v)+".jpg")
 		paths[v] = p
 		return p, nil
@@ -90,7 +90,7 @@ func TestDeriveSkipsLargeForSmallOriginals(t *testing.T) {
 	writeFixture(t, src, 1200, 800, 1)
 	info, _ := Probe(src)
 	var got []storage.Variant
-	produced, err := Derive(src, info, func(v storage.Variant) (string, error) {
+	produced, err := Derive(src, info, All, func(v storage.Variant) (string, error) {
 		got = append(got, v)
 		return filepath.Join(dir, string(v)+".jpg"), nil
 	})
@@ -109,5 +109,34 @@ func TestDeriveSkipsLargeForSmallOriginals(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "large.jpg")); !os.IsNotExist(err) {
 		t.Fatal("large.jpg should not exist")
+	}
+}
+
+func TestDeriveSubsetsAndRejectsOriginal(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src.jpg")
+	writeFixture(t, src, 3000, 2000, 1)
+	info, _ := Probe(src)
+
+	var called []storage.Variant
+	dst := func(v storage.Variant) (string, error) {
+		called = append(called, v)
+		return filepath.Join(dir, string(v)+".jpg"), nil
+	}
+	produced, err := Derive(src, info, []storage.Variant{Immediate}, dst)
+	if err != nil || len(produced) != 1 || produced[0] != storage.Thumb || len(called) != 1 {
+		t.Fatalf("immediate: %v %v %v", produced, called, err)
+	}
+	produced, err = Derive(src, info, Deferred, dst)
+	if err != nil || len(produced) != 4 {
+		t.Fatalf("deferred: %v %v", produced, err)
+	}
+	for _, v := range produced {
+		if v == storage.Thumb {
+			t.Fatal("deferred set rendered the thumb again")
+		}
+	}
+	if _, err := Derive(src, info, []storage.Variant{storage.Original}, dst); err == nil {
+		t.Fatal("original accepted as a derived variant")
 	}
 }

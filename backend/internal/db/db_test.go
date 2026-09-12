@@ -103,7 +103,7 @@ func TestAlbumsCRUD(t *testing.T) {
 }
 
 func newPhoto(id, albumID, lr, filename, taken string) *Photo {
-	return &Photo{ID: id, AlbumID: albumID, LrPhotoUUID: lr, Filename: filename, MimeType: "image/jpeg", SizeBytes: 10, Width: 4, Height: 3, TakenAt: taken, CreatedAt: t0, UpdatedAt: t0}
+	return &Photo{ID: id, AlbumID: albumID, LrPhotoUUID: lr, Filename: filename, MimeType: "image/jpeg", SizeBytes: 10, Width: 4, Height: 3, TakenAt: taken, VariantsReady: true, CreatedAt: t0, UpdatedAt: t0}
 }
 
 func TestPhotosAndSummaries(t *testing.T) {
@@ -258,5 +258,74 @@ func TestSessionSecret(t *testing.T) {
 	}
 	if err := d.SetSessionSecret(ctx, want); err == nil {
 		t.Fatal("setting a second secret should fail")
+	}
+}
+
+func TestVariantsReadyFlag(t *testing.T) {
+	d := openTest(t)
+	ctx := context.Background()
+	a := &Album{ID: "aaaaaaaa-0000-0000-0000-00000000000a", Slug: "flag", Name: "Flag", IsListed: true, CreatedAt: t0, UpdatedAt: t0}
+	if err := d.CreateAlbum(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	pending := newPhoto("aaaaaaaa-0000-0000-0000-000000000001", a.ID, "lr-1", "a.jpg", "2026-01-01T10:00:00")
+	pending.VariantsReady = false
+	pending.ContentHash = "h1"
+	ready := newPhoto("aaaaaaaa-0000-0000-0000-000000000002", a.ID, "lr-2", "b.jpg", "2026-02-01T10:00:00")
+	for _, p := range []*Photo{pending, ready} {
+		if err := d.InsertPhoto(ctx, p); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Visitors see only the ready photo; the plugin sees both.
+	if got, _ := d.ListReadyPhotos(ctx, a.ID); len(got) != 1 || got[0].ID != ready.ID {
+		t.Fatalf("ready photos: %v", got)
+	}
+	if got, _ := d.ListPhotos(ctx, a.ID); len(got) != 2 {
+		t.Fatalf("all photos: %d", len(got))
+	}
+	if got, _ := d.ListPhotosPendingVariants(ctx); len(got) != 1 || got[0].ID != pending.ID || got[0].VariantsReady {
+		t.Fatalf("pending: %v", got)
+	}
+	sum, err := d.GetAlbumSummaryBySlug(ctx, a.Slug)
+	if err != nil || sum.PhotoCount != 1 || sum.ResolvedCover != ready.ID || sum.TakenFrom != "2026-02-01T10:00:00" {
+		t.Fatalf("summary excludes pending: %+v %v", sum, err)
+	}
+	// An explicit cover that is pending falls back to the first ready photo.
+	if err := d.UpdateAlbum(ctx, &Album{ID: a.ID, Slug: a.Slug, Name: a.Name, IsListed: true, CoverPhotoID: pending.ID, UpdatedAt: t0}); err != nil {
+		t.Fatal(err)
+	}
+	if sum, _ = d.GetAlbumSummaryBySlug(ctx, a.Slug); sum.ResolvedCover != ready.ID {
+		t.Fatalf("pending cover resolved: %q", sum.ResolvedCover)
+	}
+
+	// The hash guard: a stale generation never publishes a replaced original.
+	if ok, err := d.MarkVariantsReady(ctx, a.ID, pending.ID, "stale"); err != nil || ok {
+		t.Fatalf("stale hash accepted: %v %v", ok, err)
+	}
+	if ok, err := d.MarkVariantsReady(ctx, a.ID, pending.ID, "h1"); err != nil || !ok {
+		t.Fatalf("mark ready: %v %v", ok, err)
+	}
+	if got, _ := d.ListPhotosPendingVariants(ctx); len(got) != 0 {
+		t.Fatalf("still pending: %v", got)
+	}
+	if sum, _ = d.GetAlbumSummaryBySlug(ctx, a.Slug); sum.PhotoCount != 2 || sum.ResolvedCover != pending.ID || sum.TakenFrom != "2026-01-01T10:00:00" {
+		t.Fatalf("summary after ready: %+v", sum)
+	}
+
+	// Back to pending for a replacement; metadata updates leave it alone.
+	if err := d.MarkVariantsPending(ctx, a.ID, pending.ID); err != nil {
+		t.Fatal(err)
+	}
+	pending.Title = "renamed"
+	if err := d.UpdatePhoto(ctx, pending); err != nil {
+		t.Fatal(err)
+	}
+	if p, _ := d.GetPhoto(ctx, a.ID, pending.ID); p.VariantsReady || p.Title != "renamed" {
+		t.Fatalf("after pending + update: %+v", p)
+	}
+	if errors.Is(d.MarkVariantsPending(ctx, a.ID, "aaaaaaaa-0000-0000-0000-0000000000ff"), nil) {
+		t.Fatal("pending on missing photo must fail")
 	}
 }

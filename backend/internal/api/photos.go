@@ -52,6 +52,11 @@ func (s *Server) getPhotoVariant(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, r, err)
 		return
 	}
+	if !photo.VariantsReady {
+		// Still being generated; the photo is not in any listing yet either.
+		writeError(w, http.StatusNotFound, "photo_not_found", "")
+		return
+	}
 	cache := "public, max-age=86400"
 	if album.Protected() {
 		cache = "private, max-age=3600"

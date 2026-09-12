@@ -122,6 +122,14 @@ func serve(cfg config.Config) error {
 		// No WriteTimeout: zip downloads may legitimately take minutes.
 	}
 
+	// Display variants are rendered here, after each upload has been
+	// acknowledged; pending photos from before a restart are picked up first.
+	workerDone := make(chan struct{})
+	go func() {
+		handler.Run(ctx)
+		close(workerDone)
+	}()
+
 	errCh := make(chan error, 1)
 	go func() {
 		logger.Info("listening", "addr", cfg.ListenAddr, "data_dir", cfg.DataDir, "frontend_dir", cfg.FrontendDir)
@@ -137,10 +145,12 @@ func serve(cfg config.Config) error {
 	case <-ctx.Done():
 	}
 	logger.Info("shutting down")
+	stop() // also stops the variant worker after the photo it is on
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		return fmt.Errorf("shutdown: %w", err)
 	}
+	<-workerDone
 	return nil
 }

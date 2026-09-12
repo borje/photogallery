@@ -33,34 +33,67 @@ const (
 	blurSigma   = 2.0
 )
 
-// Derive writes the display variants of the JPEG at src. dst is called once
-// per variant and must return the output path. All variants are upright
-// (EXIF orientation applied), sRGB, progressive, and carry no metadata except
-// an ICC profile. It returns the variants produced.
-func Derive(src string, info Info, dst func(storage.Variant) (string, error)) ([]storage.Variant, error) {
+// Immediate is the one variant rendered while the upload request is still
+// in flight. Thumb is cheap (libvips shrinks on load) yet decodes the whole
+// file, so a corrupt upload is rejected in the request instead of being
+// discovered by the background worker after the client was told 201.
+const Immediate = storage.Thumb
+
+// Deferred lists the variants the background worker renders after the
+// upload has been acknowledged.
+var Deferred = []storage.Variant{storage.Large, storage.Medium, storage.Small, storage.Blur}
+
+// All lists every display variant in generation order.
+var All = []storage.Variant{storage.Large, storage.Medium, storage.Small, storage.Thumb, storage.Blur}
+
+// Derive writes the requested display variants of the JPEG at src. Every
+// variant is rendered directly from the source, never from another variant,
+// so quality does not degrade down the chain. dst is called once per variant
+// and must return the output path. All variants are upright (EXIF
+// orientation applied), sRGB, progressive, and carry no metadata except an
+// ICC profile. Large is skipped when the original is not bigger than it; the
+// original is served in its place. It returns the variants produced.
+func Derive(src string, info Info, want []storage.Variant, dst func(storage.Variant) (string, error)) ([]storage.Variant, error) {
 	var produced []storage.Variant
 	long := max(info.Width, info.Height)
-	for _, sz := range Sizes {
-		if sz.Variant == storage.Large && long <= sz.Long {
+	for _, v := range want {
+		if v == storage.Blur {
+			path, err := dst(v)
+			if err != nil {
+				return produced, err
+			}
+			if err := resize(src, path, BlurLong, blurQuality, true); err != nil {
+				return produced, fmt.Errorf("blur: %w", err)
+			}
+			produced = append(produced, v)
 			continue
 		}
-		path, err := dst(sz.Variant)
+		sz, ok := sizeOf(v)
+		if !ok {
+			return produced, fmt.Errorf("%s: not a derived variant", v)
+		}
+		if v == storage.Large && long <= sz.Long {
+			continue
+		}
+		path, err := dst(v)
 		if err != nil {
 			return produced, err
 		}
 		if err := resize(src, path, sz.Long, sz.Quality, false); err != nil {
-			return produced, fmt.Errorf("%s: %w", sz.Variant, err)
+			return produced, fmt.Errorf("%s: %w", v, err)
 		}
-		produced = append(produced, sz.Variant)
+		produced = append(produced, v)
 	}
-	path, err := dst(storage.Blur)
-	if err != nil {
-		return produced, err
+	return produced, nil
+}
+
+func sizeOf(v storage.Variant) (Size, bool) {
+	for _, sz := range Sizes {
+		if sz.Variant == v {
+			return sz, true
+		}
 	}
-	if err := resize(src, path, BlurLong, blurQuality, true); err != nil {
-		return produced, fmt.Errorf("blur: %w", err)
-	}
-	return append(produced, storage.Blur), nil
+	return Size{}, false
 }
 
 func resize(src, dst string, long, quality int, blur bool) error {

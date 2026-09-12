@@ -214,6 +214,7 @@ func TestPhotoVariantsAndDownload(t *testing.T) {
 	if rec.Code != 200 {
 		t.Fatalf("replace big with small: %d %s", rec.Code, rec.Body.String())
 	}
+	e.waitVariants()
 	if _, err := os.Stat(filepath.Join(e.store.Root(), "photos", a.ID, bigID, "large.jpg")); !os.IsNotExist(err) {
 		t.Fatal("stale large.jpg not removed after replacement")
 	}

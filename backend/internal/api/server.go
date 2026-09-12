@@ -10,7 +10,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"runtime"
 	"time"
 
 	"github.com/bege/smugbox/backend/internal/auth"
@@ -31,7 +30,8 @@ type Deps struct {
 	Web   http.Handler // serves the frontend; nil means 404 for non-API paths
 }
 
-// Server is the root http.Handler.
+// Server is the root http.Handler. Run must be started alongside it for
+// uploaded photos to become visible.
 type Server struct {
 	db      *db.DB
 	store   *storage.Store
@@ -41,8 +41,8 @@ type Server struct {
 	rand    io.Reader
 	handler http.Handler
 
-	deriveSem chan struct{} // bounds concurrent libvips derivative generation
-	zipSem    chan struct{} // bounds concurrent zip downloads
+	variants *variantWorker // renders display variants after upload; see Run
+	zipSem   chan struct{}  // bounds concurrent zip downloads
 
 	sessions  *auth.Sessions
 	limiter   *auth.RateLimiter // per (ip, slug)
@@ -57,9 +57,9 @@ const jsonTimeout = 30 * time.Second
 func New(d Deps) (*Server, error) {
 	s := &Server{
 		db: d.DB, store: d.Store, cfg: d.Cfg, log: d.Log, now: d.Now, rand: d.Rand,
-		deriveSem: make(chan struct{}, runtime.NumCPU()),
-		zipSem:    make(chan struct{}, maxConcurrentZips),
+		zipSem: make(chan struct{}, maxConcurrentZips),
 	}
+	s.variants = newVariantWorker(s)
 	if s.log == nil {
 		s.log = slog.Default()
 	}

@@ -45,9 +45,21 @@ type env struct {
 	store *storage.Store
 	key   string
 	now   time.Time
+
+	stopWorker func() // nil while the variant worker is not running
 }
 
+// newEnv builds a server with its variant worker running, so uploads are
+// fully visible once uploadPhoto returns. newEnvNoWorker leaves photos in
+// the pending state for tests that look at that window.
 func newEnv(t *testing.T) *env {
+	t.Helper()
+	e := newEnvNoWorker(t)
+	e.startWorker()
+	return e
+}
+
+func newEnvNoWorker(t *testing.T) *env {
 	t.Helper()
 	dir := t.TempDir()
 	database, err := db.Open(context.Background(), filepath.Join(dir, "smugbox.db"))
@@ -74,6 +86,45 @@ func newEnv(t *testing.T) *env {
 	}
 	e.srv = srv
 	return e
+}
+
+// startWorker runs the variant worker until the test ends or stopWorker.
+func (e *env) startWorker() {
+	e.t.Helper()
+	if e.stopWorker != nil {
+		e.t.Fatal("worker already running")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		e.srv.Run(ctx)
+		close(done)
+	}()
+	e.stopWorker = func() {
+		cancel()
+		<-done
+		e.stopWorker = nil
+	}
+	e.t.Cleanup(func() {
+		if e.stopWorker != nil {
+			e.stopWorker()
+		}
+	})
+}
+
+// waitVariants blocks until the worker has nothing left to do.
+func (e *env) waitVariants() {
+	e.t.Helper()
+	if e.stopWorker == nil {
+		e.t.Fatal("waitVariants without a running worker")
+	}
+	deadline := time.Now().Add(30 * time.Second)
+	for !e.srv.variants.idle() {
+		if time.Now().After(deadline) {
+			e.t.Fatal("variant worker did not go idle")
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
 }
 
 func (e *env) createKey(label string) string {
@@ -168,6 +219,9 @@ func (e *env) uploadPhoto(albumID, lrUUID, filename string, file []byte, extra m
 	}
 	var out struct{ ID, URL string }
 	decode(e.t, rec, &out)
+	if e.stopWorker != nil {
+		e.waitVariants()
+	}
 	return out.ID, rec.Code
 }
 
@@ -387,6 +441,7 @@ func TestUploadIdempotentAndReplace(t *testing.T) {
 	if !bytes.Equal(stored, jpg2) {
 		t.Fatal("replaced file not written")
 	}
+	e.waitVariants() // the worker stages files too
 	if entries, _ := os.ReadDir(filepath.Join(e.store.Root(), "incoming")); len(entries) != 0 {
 		t.Fatalf("staging leftovers: %d", len(entries))
 	}

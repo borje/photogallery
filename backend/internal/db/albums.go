@@ -127,13 +127,16 @@ func (d *DB) ListAlbums(ctx context.Context) ([]*Album, error) {
 	return out, rows.Err()
 }
 
+// summarySelect aggregates over ready photos only: a photo whose variants
+// are still being generated is invisible to visitors, so it must not count,
+// widen the date range, or be picked as cover.
 const summarySelect = `SELECT ` + albumCols + `,
-	(SELECT COUNT(*) FROM photos p WHERE p.album_id = a.id) AS photo_count,
-	COALESCE((SELECT MIN(p.taken_at) FROM photos p WHERE p.album_id = a.id AND p.taken_at IS NOT NULL AND p.taken_at <> ''), '') AS taken_from,
-	COALESCE((SELECT MAX(p.taken_at) FROM photos p WHERE p.album_id = a.id AND p.taken_at IS NOT NULL AND p.taken_at <> ''), '') AS taken_to,
+	(SELECT COUNT(*) FROM photos p WHERE p.album_id = a.id AND p.variants_ready = 1) AS photo_count,
+	COALESCE((SELECT MIN(p.taken_at) FROM photos p WHERE p.album_id = a.id AND p.variants_ready = 1 AND p.taken_at IS NOT NULL AND p.taken_at <> ''), '') AS taken_from,
+	COALESCE((SELECT MAX(p.taken_at) FROM photos p WHERE p.album_id = a.id AND p.variants_ready = 1 AND p.taken_at IS NOT NULL AND p.taken_at <> ''), '') AS taken_to,
 	COALESCE(
-		(SELECT p.id FROM photos p WHERE p.album_id = a.id AND p.id = a.cover_photo_id),
-		(SELECT p.id FROM photos p WHERE p.album_id = a.id ORDER BY p.sort_order, p.taken_at, p.filename LIMIT 1),
+		(SELECT p.id FROM photos p WHERE p.album_id = a.id AND p.id = a.cover_photo_id AND p.variants_ready = 1),
+		(SELECT p.id FROM photos p WHERE p.album_id = a.id AND p.variants_ready = 1 ORDER BY p.sort_order, p.taken_at, p.filename LIMIT 1),
 		'') AS cover
 	FROM albums a`
 

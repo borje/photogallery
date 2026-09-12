@@ -10,7 +10,6 @@ import (
 	"mime/multipart"
 	"net/http"
 	"path"
-	"slices"
 	"strings"
 	"unicode"
 
@@ -232,45 +231,37 @@ func (s *Server) ingest(w http.ResponseWriter, r *http.Request, a *db.Album, exi
 			}
 		}
 
-		// Generate display variants into staging, then move everything into
-		// place so a photo is never visible with mismatched files.
-		derived := map[storage.Variant]*storage.Staged{}
-		defer func() {
-			for _, st := range derived {
-				st.Abort()
-			}
-		}()
-		s.deriveSem <- struct{}{}
-		produced, err := image.Derive(up.staged.Path(), info, func(v storage.Variant) (string, error) {
-			st, err := s.store.NewStaged()
-			if err != nil {
-				return "", err
-			}
-			derived[v] = st
-			return st.Path(), nil
-		})
-		<-s.deriveSem
+		// Render the thumb now and the rest in the background: the request
+		// returns as soon as the original is safe on disk. The thumb decodes
+		// the whole file, so a corrupt JPEG is still rejected here.
+		thumb, err := s.store.NewStaged()
 		if err != nil {
-			s.log.Warn("derive variants", "album", a.ID, "photo", photo.ID, "err", err)
+			s.internalError(w, r, err)
+			return
+		}
+		defer thumb.Abort()
+		if _, err := image.Derive(up.staged.Path(), info, []storage.Variant{image.Immediate}, func(storage.Variant) (string, error) {
+			return thumb.Path(), nil
+		}); err != nil {
+			s.log.Warn("derive thumb", "album", a.ID, "photo", photo.ID, "err", err)
 			writeError(w, http.StatusUnprocessableEntity, "invalid_image", "could not process image")
 			return
 		}
-		for v, st := range derived {
-			if err := s.store.Commit(st, a.ID, photo.ID, v); err != nil {
+		if !isNew {
+			// Hide the photo while its stored variants describe the old
+			// original; the worker shows it again once they are regenerated.
+			if err := s.db.MarkVariantsPending(r.Context(), a.ID, photo.ID); err != nil {
 				s.internalError(w, r, err)
 				return
 			}
 		}
-		if err := s.store.Commit(up.staged, a.ID, photo.ID, storage.Original); err != nil {
+		if err := s.store.Commit(thumb, a.ID, photo.ID, image.Immediate); err != nil {
 			s.internalError(w, r, err)
 			return
 		}
-		// A replacement may be smaller than the previous file: drop variants
-		// that were not regenerated (large falls back to original).
-		for _, sz := range image.Sizes {
-			if !slices.Contains(produced, sz.Variant) {
-				_ = s.store.Remove(a.ID, photo.ID, sz.Variant)
-			}
+		if err := s.store.Commit(up.staged, a.ID, photo.ID, storage.Original); err != nil {
+			s.internalError(w, r, err)
+			return
 		}
 	}
 	if photo.Filename == "" {
@@ -289,6 +280,9 @@ func (s *Server) ingest(w http.ResponseWriter, r *http.Request, a *db.Album, exi
 		}
 		s.internalError(w, r, err)
 		return
+	}
+	if up.staged != nil {
+		s.variants.kick()
 	}
 	status := http.StatusOK
 	if isNew {
