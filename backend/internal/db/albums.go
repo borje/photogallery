@@ -59,7 +59,11 @@ func (d *DB) CreateAlbum(ctx context.Context, a *Album) error {
 		VALUES (?, ?, ?, ?, NULLIF(?, ''), ?, ?, ?, NULLIF(?, ''), NULLIF(?, ''), ?, ?)`,
 		a.ID, nullIfEmpty(a.FolderID), a.Slug, a.Name, a.Description, a.PasswordHash, a.PasswordVersion, boolToInt(a.IsListed), a.CoverPhotoID, a.IdempotencyKey, formatTime(a.CreatedAt), formatTime(a.UpdatedAt))
 	if isUniqueViolation(err) {
-		if d.hasIdempotencyKey(ctx, "albums", a.IdempotencyKey) {
+		taken, kerr := d.hasIdempotencyKey(ctx, "albums", a.IdempotencyKey)
+		if kerr != nil {
+			return kerr
+		}
+		if taken {
 			return ErrIdempotencyKeyTaken
 		}
 		return ErrSlugTaken

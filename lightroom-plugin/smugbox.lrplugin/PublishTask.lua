@@ -84,7 +84,7 @@ function PublishTask.resolveParent(api, collection, repair)
 		local id = s:getRemoteId()
 		if id and repair then
 			local ok, result, status, data = api:updateFolder(id, { name = s:getName(), parent_id = parentId or "" })
-			if not ok and status == 404 and type(data) == "table" and data.error == "folder_not_found" then
+			if not ok and isGone(status, data, "folder_not_found") then
 				log:warnf("album set %s gone on server, creating a new one", id)
 				id = nil
 			elseif not ok then

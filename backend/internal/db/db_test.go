@@ -328,4 +328,16 @@ func TestVariantsReadyFlag(t *testing.T) {
 	if errors.Is(d.MarkVariantsPending(ctx, a.ID, "aaaaaaaa-0000-0000-0000-0000000000ff"), nil) {
 		t.Fatal("pending on missing photo must fail")
 	}
+
+	// A row with no content hash is stored as NULL and read back as "": the
+	// guard must still match it, or the photo could never be published.
+	noHash := newPhoto("aaaaaaaa-0000-0000-0000-000000000003", a.ID, "lr-3", "c.jpg", "2026-03-01T10:00:00")
+	noHash.VariantsReady = false
+	noHash.ContentHash = ""
+	if err := d.InsertPhoto(ctx, noHash); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := d.MarkVariantsReady(ctx, a.ID, noHash.ID, ""); err != nil || !ok {
+		t.Fatalf("mark ready without a hash: %v %v", ok, err)
+	}
 }

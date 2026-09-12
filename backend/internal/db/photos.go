@@ -170,9 +170,11 @@ func (d *DB) MarkVariantsPending(ctx context.Context, albumID, id string) error 
 // contentHash must match the row, so that variants generated from an
 // original that has since been replaced never mark the new one ready. It
 // reports whether the row was updated; false means the photo is gone or its
-// original changed underneath the generation.
+// original changed underneath the generation. content_hash is COALESCEd the
+// way photoCols reads it, so a row with no hash (compared as "") matches
+// instead of failing closed forever.
 func (d *DB) MarkVariantsReady(ctx context.Context, albumID, id, contentHash string) (bool, error) {
-	res, err := d.ExecContext(ctx, `UPDATE photos SET variants_ready = 1 WHERE album_id = ? AND id = ? AND content_hash = ?`, albumID, id, contentHash)
+	res, err := d.ExecContext(ctx, `UPDATE photos SET variants_ready = 1 WHERE album_id = ? AND id = ? AND COALESCE(content_hash, '') = ?`, albumID, id, contentHash)
 	if err != nil {
 		return false, fmt.Errorf("mark variants ready: %w", err)
 	}

@@ -30,11 +30,10 @@ type variantWorker struct {
 	s    *Server
 	wake chan struct{} // capacity 1: a pending kick, coalesced
 
-	mu      sync.Mutex
-	busy    bool            // drain in progress
-	kicked  bool            // a kick has not yet been picked up by the loop
-	failed  map[string]bool // photoID:contentHash that failed in this process
-	stopped bool            // Run has returned
+	mu     sync.Mutex
+	busy   bool            // drain in progress
+	kicked bool            // a kick has not yet been picked up by the loop
+	failed map[string]bool // photoID:contentHash that failed in this process
 }
 
 func newVariantWorker(s *Server) *variantWorker {
@@ -62,11 +61,6 @@ func (w *variantWorker) kick() {
 }
 
 func (w *variantWorker) run(ctx context.Context) {
-	defer func() {
-		w.mu.Lock()
-		w.stopped = true
-		w.mu.Unlock()
-	}()
 	for {
 		select {
 		case <-ctx.Done():
@@ -83,11 +77,14 @@ func (w *variantWorker) run(ctx context.Context) {
 	}
 }
 
-// idle reports whether no drain is running and no kick is outstanding.
+// idle reports whether no drain is running and no kick is outstanding. Both
+// halves of a kick are checked: the flag covers the moment after the loop
+// has taken the token but before it has set busy, and the channel covers a
+// token pushed by a kick that raced with the loop clearing the flag.
 func (w *variantWorker) idle() bool {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	return !w.busy && !w.kicked
+	return !w.busy && !w.kicked && len(w.wake) == 0
 }
 
 func (w *variantWorker) drain(ctx context.Context) {

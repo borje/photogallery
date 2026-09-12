@@ -11,6 +11,11 @@ import (
 	"github.com/bege/smugbox/backend/internal/storage"
 )
 
+// allVariants is every display variant in generation order. Production
+// renders Immediate and Deferred in two passes; only these tests want both
+// at once.
+var allVariants = []storage.Variant{storage.Large, storage.Medium, storage.Small, storage.Thumb, storage.Blur}
+
 func loadDims(t *testing.T, path string) (w, h int, img *vips.Image) {
 	t.Helper()
 	img, err := vips.NewImageFromFile(path, &vips.LoadOptions{})
@@ -38,7 +43,7 @@ func TestDeriveVariants(t *testing.T) {
 		t.Fatalf("probe: %+v %v", info, err)
 	}
 	paths := map[storage.Variant]string{}
-	produced, err := Derive(src, info, All, func(v storage.Variant) (string, error) {
+	produced, err := Derive(src, info, allVariants, func(v storage.Variant) (string, error) {
 		p := filepath.Join(dir, string(v)+".jpg")
 		paths[v] = p
 		return p, nil
@@ -90,7 +95,7 @@ func TestDeriveSkipsLargeForSmallOriginals(t *testing.T) {
 	writeFixture(t, src, 1200, 800, 1)
 	info, _ := Probe(src)
 	var got []storage.Variant
-	produced, err := Derive(src, info, All, func(v storage.Variant) (string, error) {
+	produced, err := Derive(src, info, allVariants, func(v storage.Variant) (string, error) {
 		got = append(got, v)
 		return filepath.Join(dir, string(v)+".jpg"), nil
 	})

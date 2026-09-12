@@ -129,6 +129,13 @@ func serve(cfg config.Config) error {
 		handler.Run(ctx)
 		close(workerDone)
 	}()
+	// Joined before the deferred database.Close and image.Shutdown above, on
+	// every return path: the worker holds a context.WithoutCancel while it
+	// renders, so it must be waited for rather than only cancelled.
+	defer func() {
+		stop()
+		<-workerDone
+	}()
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -151,6 +158,5 @@ func serve(cfg config.Config) error {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		return fmt.Errorf("shutdown: %w", err)
 	}
-	<-workerDone
 	return nil
 }

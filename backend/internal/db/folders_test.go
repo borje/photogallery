@@ -123,6 +123,25 @@ func TestListChildFoldersAndAlbumsIn(t *testing.T) {
 		t.Fatalf("cover should be the newest listed album: %+v", children[0])
 	}
 
+	// While iceland's only photo is still being rendered it must neither
+	// order the folder nor be picked as its cover: /cover would 404.
+	if err := d.MarkVariantsPending(ctx, newer.ID, "p2"); err != nil {
+		t.Fatal(err)
+	}
+	children, err = d.ListChildFolders(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(children) != 1 || children[0].CoverAlbumSlug != "skane" {
+		t.Fatalf("cover should skip an album with no ready photo: %+v", children)
+	}
+	if children[0].NewestTakenAt != "2020-01-01T10:00:00" {
+		t.Fatalf("newest taken_at should skip pending photos: %+v", children[0])
+	}
+	if ok, err := d.MarkVariantsReady(ctx, newer.ID, "p2", ""); err != nil || !ok {
+		t.Fatalf("mark ready: %v %v", ok, err)
+	}
+
 	inTravel, err := d.ListAlbumSummariesIn(ctx, travel.ID, true)
 	if err != nil {
 		t.Fatal(err)

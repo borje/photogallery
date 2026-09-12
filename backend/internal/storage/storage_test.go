@@ -138,12 +138,11 @@ func TestRemoveAndOrphans(t *testing.T) {
 			}
 		}
 	}
-	// The empty album dir was just created: within the grace period it is kept.
-	check(listing.Orphans(known, now, time.Hour), map[string]bool{
-		filepath.Join(s.Root(), "photos", albumA, photoB): true,
-		junk: true,
-	})
-	// Past the grace period it goes too.
+	// The empty album dir and photoB's directory were just created: within
+	// the grace period both are kept, because an upload commits its files
+	// before it inserts the row that would make photoB known.
+	check(listing.Orphans(known, now, time.Hour), map[string]bool{junk: true})
+	// Past the grace period they go too.
 	check(listing.Orphans(known, now.Add(2*time.Hour), time.Hour), map[string]bool{
 		filepath.Join(s.Root(), "photos", albumA, photoB): true,
 		junk:       true,

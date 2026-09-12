@@ -3,8 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"errors"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -57,7 +55,8 @@ func TestGCKeepsLivePhotosAndFreshDirs(t *testing.T) {
 	staged.Sync()
 	freshIncoming := staged.Path()
 
-	// Wall clock: the fresh dir and staging file are seconds old.
+	// Wall clock: the fresh dir, the staging file and the unreferenced photo
+	// directory are seconds old.
 	if err := gc(ctx, database, store, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -67,23 +66,23 @@ func TestGCKeepsLivePhotosAndFreshDirs(t *testing.T) {
 			t.Fatalf("%s should survive gc: %v", p, err)
 		}
 	}
-	mustBeGone := func(p string) {
-		t.Helper()
-		if _, err := os.Stat(p); !errors.Is(err, fs.ErrNotExist) {
-			t.Fatalf("%s should be removed by gc: %v", p, err)
-		}
-	}
 	mustExist(filepath.Join(dir, "photos", albumA, photoA, "original.jpg"))
-	mustBeGone(filepath.Join(dir, "photos", albumA, photoB))
+	// photoB has no row, but an upload commits its files before it inserts
+	// the row, so within the grace period it is kept.
+	mustExist(filepath.Join(dir, "photos", albumA, photoB))
 	mustExist(freshEmpty)
 	mustExist(freshIncoming)
 
-	// An hour later the empty dir and staging file are fair game.
+	// An hour later all three are fair game.
 	targets, err := gcTargets(ctx, database, store, time.Now().Add(2*time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]bool{freshEmpty: true, freshIncoming: true}
+	want := map[string]bool{
+		freshEmpty:    true,
+		freshIncoming: true,
+		filepath.Join(dir, "photos", albumA, photoB): true,
+	}
 	if len(targets) != len(want) {
 		t.Fatalf("targets = %v", targets)
 	}

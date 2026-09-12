@@ -133,12 +133,17 @@ type rowScanner interface {
 	Scan(dest ...any) error
 }
 
-// hasIdempotencyKey reports whether table has a row with the given key.
-func (d *DB) hasIdempotencyKey(ctx context.Context, table, key string) bool {
+// hasIdempotencyKey reports whether table has a row with the given key. A
+// failed lookup is reported rather than read as "no": the caller would
+// otherwise turn a key collision into ErrSlugTaken and re-slug its way to a
+// 500 instead of replaying the idempotent create.
+func (d *DB) hasIdempotencyKey(ctx context.Context, table, key string) (bool, error) {
 	if key == "" {
-		return false
+		return false, nil
 	}
 	var n int
-	err := d.QueryRowContext(ctx, `SELECT COUNT(*) FROM `+table+` WHERE idempotency_key = ?`, key).Scan(&n)
-	return err == nil && n > 0
+	if err := d.QueryRowContext(ctx, `SELECT COUNT(*) FROM `+table+` WHERE idempotency_key = ?`, key).Scan(&n); err != nil {
+		return false, fmt.Errorf("count idempotency key in %s: %w", table, err)
+	}
+	return n > 0, nil
 }

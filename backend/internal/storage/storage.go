@@ -240,10 +240,12 @@ func (s *Store) RemoveAlbum(albumID string) error {
 	return nil
 }
 
-// PhotoDir is a photo directory found under photos/<album>/<photo>.
+// PhotoDir is a photo directory found under photos/<album>/<photo>, with
+// the modification time observed while walking.
 type PhotoDir struct {
 	AlbumID, PhotoID string
 	Path             string
+	ModTime          time.Time
 }
 
 // DirInfo is a directory with the modification time observed while walking.
@@ -254,9 +256,12 @@ type DirInfo struct {
 
 // Listing is a point-in-time view of photos/ taken by Walk. Callers that
 // reconcile against the database take the Listing first and the database
-// snapshot second: a photo committed in between is then in the snapshot and
-// kept, and one committed afterwards is not in the Listing at all, so a
-// concurrent upload can never look orphaned.
+// snapshot second, so a photo committed in between is in the database
+// snapshot and kept, and one committed afterwards is not in the Listing at
+// all. That ordering alone is not enough: an upload commits its files
+// before it inserts the row, so a directory seen by Walk can be missing
+// from the snapshot while its row is moments away. Orphans therefore also
+// requires a photo directory to be older than the grace period.
 type Listing struct {
 	Photos    []PhotoDir // valid UUID directories at both levels
 	Junk      []string   // non-directory or non-UUID entries at either level
@@ -300,20 +305,30 @@ func (s *Store) Walk() (*Listing, error) {
 				l.Junk = append(l.Junk, pdir)
 				continue
 			}
-			l.Photos = append(l.Photos, PhotoDir{AlbumID: a.Name(), PhotoID: p.Name(), Path: pdir})
+			info, err := p.Info()
+			if err != nil {
+				if errors.Is(err, fs.ErrNotExist) {
+					continue
+				}
+				return nil, err
+			}
+			l.Photos = append(l.Photos, PhotoDir{
+				AlbumID: a.Name(), PhotoID: p.Name(), Path: pdir, ModTime: info.ModTime(),
+			})
 		}
 	}
 	return l, nil
 }
 
-// Orphans returns the paths to remove: junk, photo directories for which
-// known reports false, and empty album directories older than minAge. The
-// age guard protects a Commit that has just created the album directory and
-// is about to rename the first file into it.
+// Orphans returns the paths to remove: junk, plus photo directories for
+// which known reports false and empty album directories, both only when
+// older than minAge. The age guard protects an upload in flight, which
+// creates these directories and commits files into them before its database
+// row exists.
 func (l *Listing) Orphans(known func(albumID, photoID string) bool, now time.Time, minAge time.Duration) []string {
 	out := append([]string(nil), l.Junk...)
 	for _, p := range l.Photos {
-		if !known(p.AlbumID, p.PhotoID) {
+		if !known(p.AlbumID, p.PhotoID) && now.Sub(p.ModTime) > minAge {
 			out = append(out, p.Path)
 		}
 	}

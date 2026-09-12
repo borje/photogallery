@@ -43,9 +43,6 @@ const Immediate = storage.Thumb
 // upload has been acknowledged.
 var Deferred = []storage.Variant{storage.Large, storage.Medium, storage.Small, storage.Blur}
 
-// All lists every display variant in generation order.
-var All = []storage.Variant{storage.Large, storage.Medium, storage.Small, storage.Thumb, storage.Blur}
-
 // Derive writes the requested display variants of the JPEG at src. Every
 // variant is rendered directly from the source, never from another variant,
 // so quality does not degrade down the chain. dst is called once per variant

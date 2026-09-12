@@ -227,14 +227,16 @@ func deleteAlbum(ctx context.Context, database *db.DB, store *storage.Store, arg
 	return nil
 }
 
-// gcGrace is how old an empty album directory or a staging file must be
-// before gc removes it. Both are created moments before a Commit renames a
-// file into place, so anything younger may belong to an upload in flight.
+// gcGrace is how old an unreferenced photo directory, an empty album
+// directory or a staging file must be before gc removes it. All three are
+// created before the upload that owns them has a database row, so anything
+// younger may belong to an upload in flight.
 const gcGrace = time.Hour
 
 // gcTargets lists what gc would remove. The disk is listed before the
 // database is read so that a photo committed by a running server between
-// the two is in the database snapshot and kept; see storage.Listing.
+// the two is in the database snapshot and kept; anything newer than
+// gcGrace is kept regardless. See storage.Listing.
 func gcTargets(ctx context.Context, database *db.DB, store *storage.Store, now time.Time) ([]string, error) {
 	listing, err := store.Walk()
 	if err != nil {
