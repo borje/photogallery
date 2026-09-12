@@ -131,6 +131,14 @@ Check the log after every step below. Server state can be inspected with
       photo into a *different* collection inside the same still-existing
       set. Expect: only the album is recreated; the set's folder id on the
       server is reused, not recreated.
+- [ ] Delete a set's folder row with curl (`DELETE /api/publish/folders/{id}`,
+      which also removes its albums), then create and publish a *new*
+      collection inside that set. Expect: the set is recreated on the server
+      (new id, same name), the publish succeeds, and the set's other
+      collections republish into the new folder on their next publish.
+- [ ] With the folder row deleted as above, open an existing collection's
+      settings in that set and save. Expect: no "could not resolve album set"
+      dialog; the set is recreated and the settings are saved.
 
 ## Error handling
 

@@ -35,11 +35,24 @@ function PublishTask.albumFields(name, collectionSettings, parentId)
 	return fields
 end
 
+-- True when the backend rejected a request because the folder named by its
+-- parent_id no longer exists: one of the collection sets has a stale remote
+-- id and the chain needs repairing.
+local function isFolderGone(ok, status, data)
+	return not ok and status == 400 and type(data) == "table" and data.error == "folder_not_found"
+end
+PublishTask.isFolderGone = isFolderGone
+
 -- Walks the chain of published collection sets containing `collection`,
 -- root first, creating a backend folder for any set that doesn't have one
 -- yet and recording its id on the set. Returns ok, and either the innermost
 -- folder id ("" at the root) or an error message.
-function PublishTask.resolveParent(api, collection)
+--
+-- With `repair`, every stored id is verified against the server first (the
+-- update doubles as a name/parent reconcile) and a set whose folder was
+-- deleted server-side gets a new one. Callers ask for this only after a
+-- request failed with folder_not_found, so the normal path costs nothing.
+function PublishTask.resolveParent(api, collection, repair)
 	if not collection then
 		return true, nil
 	end
@@ -52,6 +65,15 @@ function PublishTask.resolveParent(api, collection)
 	local parentId = nil
 	for _, s in ipairs(chain) do
 		local id = s:getRemoteId()
+		if id and repair then
+			local ok, result, status, data = api:updateFolder(id, { name = s:getName(), parent_id = parentId or "" })
+			if not ok and status == 404 and type(data) == "table" and data.error == "folder_not_found" then
+				log:warnf("album set %s gone on server, creating a new one", id)
+				id = nil
+			elseif not ok then
+				return false, result
+			end
+		end
 		if not id then
 			local ok, folder = api:createFolder({ name = s:getName(), parent_id = parentId })
 			if not ok then
@@ -211,8 +233,23 @@ function PublishTask.processRenderedPhotos(functionContext, exportContext)
 		stopWithError("Smugbox: " .. tostring(parentId))
 	end
 
+	-- Re-resolves the set chain after the server reported a stale folder id.
+	-- Returns true when the chain was repaired and parentId updated.
+	local function repairParent()
+		local ok, repaired = PublishTask.resolveParent(api, publishedCollection, true)
+		if not ok then
+			log:warnf("repair album set chain: %s", tostring(repaired))
+			return false
+		end
+		parentId = repaired
+		return true
+	end
+
 	local function createAlbum()
-		local ok, album = api:createAlbum(PublishTask.albumFields(albumName, collectionSettings, parentId))
+		local ok, album, status, data = api:createAlbum(PublishTask.albumFields(albumName, collectionSettings, parentId))
+		if isFolderGone(ok, status, data) and repairParent() then
+			ok, album, status, data = api:createAlbum(PublishTask.albumFields(albumName, collectionSettings, parentId))
+		end
 		if not ok then
 			progress:done()
 			stopWithError("Smugbox: " .. tostring(album))
@@ -228,7 +265,10 @@ function PublishTask.processRenderedPhotos(functionContext, exportContext)
 	else
 		-- Reconcile in case the collection was dragged into a different set
 		-- since the last publish; Lightroom fires no callback for that.
-		local ok, result = api:updateAlbum(albumId, { parent_id = parentId or "" })
+		local ok, result, status, data = api:updateAlbum(albumId, { parent_id = parentId or "" })
+		if isFolderGone(ok, status, data) and repairParent() then
+			ok, result, status, data = api:updateAlbum(albumId, { parent_id = parentId or "" })
+		end
 		if not ok then
 			log:warnf("update album set: %s", tostring(result))
 		end
@@ -466,7 +506,17 @@ function PublishTask.updateCollectionSettings(publishSettings, info)
 	end
 	local fields = PublishTask.albumFields(info.name, info.collectionSettings, parentId)
 	fields.cover_photo_id = PublishTask.resolveCoverId(info.publishedCollection, (info.collectionSettings or {}).coverPhotoUuid)
-	local ok, result = api:updateAlbum(remoteId, fields)
+	local ok, result, status, data = api:updateAlbum(remoteId, fields)
+	if isFolderGone(ok, status, data) then
+		-- A set's folder was deleted server-side; recreate it and retry once.
+		local repairOk, repaired = PublishTask.resolveParent(api, info.publishedCollection, true)
+		if repairOk then
+			fields.parent_id = repaired or ""
+			ok, result, status, data = api:updateAlbum(remoteId, fields)
+		else
+			result = repaired
+		end
+	end
 	if not ok then
 		LrDialogs.message("Smugbox: album settings not saved on server", tostring(result), "warning")
 	end
