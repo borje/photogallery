@@ -76,4 +76,59 @@ end
 assert(#stub.dialogs == 1 and stub.dialogs[1].kind == "info", "user should be told once")
 assert(stub.dialogs[1].message:match("3 previously published photos were marked"), stub.dialogs[1].message)
 
+-- The album can also vanish part way through a run. Photos already
+-- uploaded went into the album that is now gone, and Lightroom clears their
+-- edited flag at the end of the run, so markAllForRepublish does not bring
+-- them back: the dialog has to name them.
+stub.reset()
+local function photoStub(uuid)
+	return {
+		getRawMetadata = function(_, key) return key == "uuid" and uuid or nil end,
+		getFormattedMetadata = function() return "" end,
+	}
+end
+local function renditionStub(uuid, path)
+	local r = { photo = photoStub(uuid), publishedPhotoId = nil }
+	function r:waitForRender() return true, path end
+	function r:recordPublishedPhotoId(id) self.recordedId = id end
+	function r:recordPublishedPhotoUrl(url) self.recordedUrl = url end
+	function r:uploadFailed(msg) self.failed = msg end
+	return r
+end
+local first = renditionStub("u1", "first.jpg")
+local second = renditionStub("u2", "second.jpg")
+local uploads = 0
+stub.http(function(method, url)
+	if method == "PUT" then
+		return 200, '{"id":"old"}'
+	elseif method == "POST" and url:match("/api/publish/albums$") then
+		return 201, '{"id":"new","url":"https://example.test/a/new"}'
+	elseif method == "POST" and url:match("/photos$") then
+		uploads = uploads + 1
+		if uploads == 2 then
+			return 404, '{"error":"album_not_found"}'
+		end
+		return 201, string.format('{"id":"p%d"}', uploads)
+	end
+	return 500, ""
+end)
+for _, pp in ipairs(photos) do pp.edited = nil end
+exportContext.exportSession.countRenditions = function() return 2 end
+exportContext.renditions = function()
+	local list, i = { first, second }, 0
+	return function()
+		i = i + 1
+		if list[i] then
+			return i, list[i]
+		end
+	end
+end
+PublishTask.processRenderedPhotos({}, exportContext)
+assert(first.recordedId == "p1", "first photo should have been published into the old album")
+assert(second.recordedId == "p3", "second photo should have been published into the new album: " .. tostring(second.recordedId))
+local msg = stub.dialogs[1] and stub.dialogs[1].message or ""
+assert(msg:match("first%.jpg"), "the dialog must name the photo left in the deleted album: " .. msg)
+assert(not msg:match("second%.jpg"), "the photo that reached the new album must not be listed: " .. msg)
+assert(msg:match("Mark to Re%-publish"), "the dialog must say what to do: " .. msg)
+
 print("ok")

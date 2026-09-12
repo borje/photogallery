@@ -40,6 +40,9 @@ function import(name)
 	return stub.sdk[name]
 end
 
+-- Lightroom exposes the running plug-in as a global.
+_PLUGIN = { id = "com.smugbox.test" }
+
 log = {
 	tracef = function() end,
 	warnf = function() end,
@@ -54,11 +57,15 @@ function stub.reset()
 end
 
 -- Makes LrApplication.activeCatalog() return `catalog`, filling in the
--- methods the plug-in calls with pass-through defaults.
+-- methods the plug-in calls with pass-through defaults. Plugin properties
+-- are backed by catalog.properties, which tests can read.
 function stub.catalog(catalog)
 	catalog = catalog or {}
 	catalog.withWriteAccessDo = catalog.withWriteAccessDo or function(_, _, fn) fn() end
 	catalog.getPublishedCollectionByLocalIdentifier = catalog.getPublishedCollectionByLocalIdentifier or function() return nil end
+	catalog.properties = catalog.properties or {}
+	catalog.getPropertyForPlugin = catalog.getPropertyForPlugin or function(self, _, key) return self.properties[key] end
+	catalog.setPropertyForPlugin = catalog.setPropertyForPlugin or function(self, _, key, value) self.properties[key] = value end
 	stub.sdk.LrApplication.activeCatalog = function() return catalog end
 	return catalog
 end

@@ -53,6 +53,12 @@ Check the log after every step below. Server state can be inspected with
       the server in the new album.
 - [ ] Same, but edit one photo before publishing. Expect: that photo is
       uploaded in the first run, the rest after the second.
+- [ ] Delete the album on the server *while* a publish of several photos is
+      running (curl the delete once the first photo has appeared). Expect: a
+      new album is created mid-run, the remaining photos go into it, and the
+      info dialog names the photos that had already been uploaded into the
+      deleted album and tells you to select them and use "Mark to
+      Re-publish". Do that and publish again: they land in the new album.
 
 ## Remove photos
 
@@ -160,3 +166,9 @@ Check the log after every step below. Server state can be inspected with
       the first create reached the backend but its response did not reach
       Lightroom (for example killing the container right after the row
       appears).
+- [ ] Same, but let the retries run out (keep the backend down for five
+      minutes) after the create has reached the backend, then start the
+      backend and click Publish again. Expect: still exactly one album --
+      the create key is kept in the catalog and presented again. Repeat with
+      Lightroom restarted in between, and with a new collection inside a new
+      album set (the set must not be duplicated either).

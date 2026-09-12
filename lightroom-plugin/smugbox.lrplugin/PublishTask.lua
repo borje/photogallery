@@ -10,6 +10,7 @@ local LrErrors = import "LrErrors"
 local LrPathUtils = import "LrPathUtils"
 local LrProgressScope = import "LrProgressScope"
 local LrTasks = import "LrTasks"
+local LrUUID = import "LrUUID"
 local LrView = import "LrView"
 
 local json = require "dkjson"
@@ -60,6 +61,82 @@ local function isGone(status, data, ...)
 end
 PublishTask.isGone = isGone
 
+-- The first `max` items, with a count of what was left out, for a dialog
+-- that must not grow past the screen.
+local function firstLines(items, max)
+	local shown = {}
+	for i = 1, math.min(#items, max) do
+		shown[i] = items[i]
+	end
+	if #items > max then
+		table.insert(shown, string.format("... and %d more", #items - max))
+	end
+	return shown
+end
+
+-- A create carries an idempotency key so that a retry after a lost response
+-- returns the row the first attempt made instead of a second album or set.
+-- The key has to outlive the call: when the retry ladder is exhausted and
+-- the user publishes again, that is still the same logical create and must
+-- present the same key.
+--
+-- It lives in the catalog's plugin properties, keyed by the collection's
+-- local identifier, rather than in collectionSettings, which the settings
+-- dialog owns and rewrites. It is dropped as soon as the create has been
+-- recorded, so the next create for the same collection (after the album was
+-- deleted server-side, say) mints a fresh one.
+local function createKeyProperty(collection)
+	local ok, id = pcall(function() return collection.localIdentifier end)
+	if not ok or id == nil then
+		return nil
+	end
+	return "createKey." .. tostring(id)
+end
+
+-- Returns the pending create key for `collection`, minting and storing one
+-- if there is none. A collection without a stable identity, or a catalog
+-- that refuses the write, falls back to a per-call key: no worse than
+-- having no persistence at all.
+function PublishTask.pendingCreateKey(collection)
+	local prop = collection and createKeyProperty(collection)
+	if not prop then
+		return LrUUID.generateUUID()
+	end
+	local catalog = LrApplication.activeCatalog()
+	local read, existing = pcall(function() return catalog:getPropertyForPlugin(_PLUGIN, prop) end)
+	if read and type(existing) == "string" and existing ~= "" then
+		return existing
+	end
+	local key = LrUUID.generateUUID()
+	local ok, err = pcall(function()
+		catalog:withWriteAccessDo("Smugbox: remember create key", function()
+			catalog:setPropertyForPlugin(_PLUGIN, prop, key)
+		end)
+	end)
+	if not ok then
+		log:warnf("could not store the create key for %s: %s", prop, tostring(err))
+	end
+	return key
+end
+
+-- Forgets the key once the create has been recorded, so the collection is
+-- not tied to it for the rest of its life.
+function PublishTask.clearPendingCreateKey(collection)
+	local prop = collection and createKeyProperty(collection)
+	if not prop then
+		return
+	end
+	local catalog = LrApplication.activeCatalog()
+	local ok, err = pcall(function()
+		catalog:withWriteAccessDo("Smugbox: forget create key", function()
+			catalog:setPropertyForPlugin(_PLUGIN, prop, nil)
+		end)
+	end)
+	if not ok then
+		log:warnf("could not clear the create key for %s: %s", prop, tostring(err))
+	end
+end
+
 -- Walks the chain of published collection sets containing `collection`,
 -- root first, creating a backend folder for any set that doesn't have one
 -- yet and recording its id on the set. Returns ok, and either the innermost
@@ -92,7 +169,11 @@ function PublishTask.resolveParent(api, collection, repair)
 			end
 		end
 		if not id then
-			local ok, folder = api:createFolder({ name = s:getName(), parent_id = parentId })
+			local ok, folder = api:createFolder({
+				name = s:getName(),
+				parent_id = parentId,
+				idempotency_key = PublishTask.pendingCreateKey(s),
+			})
 			if not ok then
 				return false, folder
 			end
@@ -101,6 +182,7 @@ function PublishTask.resolveParent(api, collection, repair)
 				s:setRemoteId(id)
 				s:setRemoteUrl(folder.url)
 			end)
+			PublishTask.clearPendingCreateKey(s)
 			log:infof("created album set %s (%s)", id, folder.url)
 		end
 		parentId = id
@@ -290,9 +372,14 @@ function PublishTask.processRenderedPhotos(functionContext, exportContext)
 	end
 
 	local function createAlbum()
-		local ok, album, status, data = api:createAlbum(PublishTask.albumFields(albumName, collectionSettings, parentId))
+		local fields = PublishTask.albumFields(albumName, collectionSettings, parentId)
+		-- One key for this create, including the repair retry below and any
+		-- later Publish that follows a create whose response was lost.
+		fields.idempotency_key = PublishTask.pendingCreateKey(publishedCollection)
+		local ok, album, status, data = api:createAlbum(fields)
 		if isFolderGone(ok, status, data) and repairParent() then
-			ok, album, status, data = api:createAlbum(PublishTask.albumFields(albumName, collectionSettings, parentId))
+			fields.parent_id = parentId or ""
+			ok, album, status, data = api:createAlbum(fields)
 		end
 		if not ok then
 			progress:done()
@@ -301,6 +388,7 @@ function PublishTask.processRenderedPhotos(functionContext, exportContext)
 		log:infof("created album %s (%s)", album.id, album.url)
 		exportSession:recordRemoteCollectionId(album.id)
 		exportSession:recordRemoteCollectionUrl(album.url)
+		PublishTask.clearPendingCreateKey(publishedCollection)
 		return album.id
 	end
 
@@ -337,6 +425,12 @@ function PublishTask.processRenderedPhotos(functionContext, exportContext)
 
 	local failures = {}
 	local uploaded = {} -- catalog uuid -> remote id, for the cover lookup
+	-- Filenames this run uploaded before the album turned out to be gone.
+	-- They are in the album that was deleted, not in the new one, and
+	-- Lightroom clears their edited flag at the end of a successful run --
+	-- which undoes markAllForRepublish for exactly these photos. The dialog
+	-- names them so they can be marked by hand.
+	local landedInOldAlbum = {}
 	for i, rendition in exportContext:renditions({ stopIfCanceled = true }) do
 		progress:setPortionComplete(i - 1, nPhotos)
 		local success, pathOrMessage = rendition:waitForRender()
@@ -366,6 +460,9 @@ function PublishTask.processRenderedPhotos(functionContext, exportContext)
 
 			if ok and type(result) == "table" and result.id then
 				rendition:recordPublishedPhotoId(result.id)
+				if not albumRecreated then
+					table.insert(landedInOldAlbum, fields.filename)
+				end
 				uploaded[fields.lr_photo_uuid] = result.id
 				if result.url then
 					rendition:recordPublishedPhotoUrl(result.url)
@@ -385,25 +482,29 @@ function PublishTask.processRenderedPhotos(functionContext, exportContext)
 	PublishTask.pushCover(api, albumId, publishedCollection, collectionSettings, uploaded)
 
 	if albumRecreated then
-		LrDialogs.message(
-			"Smugbox: the album was recreated on the server",
+		local lines = {
 			string.format("The album for this collection no longer existed on the server, so a new one was created. %d previously published photo%s %s marked to re-publish; click Publish again to upload them.",
 				remarked, remarked == 1 and "" or "s", remarked == 1 and "was" or "were"),
-			"info"
-		)
+		}
+		if #landedInOldAlbum > 0 then
+			local n = #landedInOldAlbum
+			log:warnf("%d photo(s) uploaded into the deleted album: %s", n, table.concat(landedInOldAlbum, ", "))
+			table.insert(lines, "")
+			table.insert(lines, string.format(
+				"%d photo%s of this run had already been uploaded when the album turned out to be gone, so %s in the deleted album and not in the new one. Lightroom counts %s as published, so select %s in the collection and use Mark to Re-publish:",
+				n, n == 1 and "" or "s",
+				n == 1 and "it is" or "they are",
+				n == 1 and "it" or "them",
+				n == 1 and "it" or "them"))
+			table.insert(lines, table.concat(firstLines(landedInOldAlbum, 10), "\n"))
+		end
+		LrDialogs.message("Smugbox: the album was recreated on the server", table.concat(lines, "\n"), "info")
 	end
 
 	if #failures > 0 then
-		local shown = {}
-		for i = 1, math.min(#failures, 10) do
-			shown[i] = failures[i]
-		end
-		if #failures > 10 then
-			table.insert(shown, string.format("... and %d more", #failures - 10))
-		end
 		LrDialogs.message(
 			string.format("%d photo%s could not be published", #failures, #failures == 1 and "" or "s"),
-			table.concat(shown, "\n"),
+			table.concat(firstLines(failures, 10), "\n"),
 			"warning"
 		)
 	end

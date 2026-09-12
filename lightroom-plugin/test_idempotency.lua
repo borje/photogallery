@@ -52,4 +52,57 @@ stub.http(function() return 200, '{"id":"a1"}' end)
 api:updateAlbum("a1", { name = "X" })
 assert(json.decode(stub.calls[1].body).idempotency_key == nil, "update must not carry a key")
 
+-- The key outlives the call: a create whose whole retry ladder failed must
+-- present the same key when the user publishes again, or a create that did
+-- reach the backend turns into a duplicate album.
+local PublishTask = require "PublishTask"
+local catalog = stub.catalog()
+local collection = { localIdentifier = 42 }
+
+local first = PublishTask.pendingCreateKey(collection)
+assert(type(first) == "string" and first ~= "", "first key: " .. tostring(first))
+assert(catalog.properties["createKey.42"] == first, "key not persisted")
+assert(PublishTask.pendingCreateKey(collection) == first, "a later publish must reuse the stored key")
+
+-- Recording the create forgets it, so the next create is a new one.
+PublishTask.clearPendingCreateKey(collection)
+assert(catalog.properties["createKey.42"] == nil, "key not cleared")
+assert(PublishTask.pendingCreateKey(collection) ~= first, "a new create must mint a new key")
+
+-- A collection without a stable identity still gets a per-call key.
+assert(PublishTask.pendingCreateKey({}) ~= nil, "fallback key")
+
+-- Album sets go through the same store, via resolveParent.
+stub.reset()
+catalog.properties = {}
+local set = {
+	localIdentifier = 7,
+	getRemoteId = function() return nil end,
+	getName = function() return "Travel" end,
+	getParent = function() return nil end,
+	setRemoteId = function() end,
+	setRemoteUrl = function() end,
+}
+local child = { getParent = function() return set end }
+stub.http(function() return nil, nil end) -- every attempt fails outright
+local ok = PublishTask.resolveParent({
+	createFolder = function(_, fields)
+		return false, "boom", nil, nil, fields
+	end,
+}, child)
+assert(not ok, "create failure should be reported")
+local stored = catalog.properties["createKey.7"]
+assert(type(stored) == "string" and stored ~= "", "set key not persisted: " .. tostring(stored))
+
+local sent
+local ok2, parentId = PublishTask.resolveParent({
+	createFolder = function(_, fields)
+		sent = fields
+		return true, { id = "f9", url = "u" }
+	end,
+}, child)
+assert(ok2 and parentId == "f9", "second attempt should create the folder")
+assert(sent.idempotency_key == stored, "the retry must reuse the stored key")
+assert(catalog.properties["createKey.7"] == nil, "set key not cleared after the create")
+
 print("ok")
