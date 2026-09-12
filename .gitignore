@@ -8,3 +8,6 @@
 # editor / OS
 .DS_Store
 *.swp
+
+# load-test server state
+/tools/loadtest/.testserver.env

@@ -14,6 +14,7 @@ Three parts, one repository:
 | `backend/` | Go server: publish API for the plugin, visitor API, image processing with libvips, SQLite, static hosting of the frontend. |
 | `frontend/` | React single-page app: album list, album page with responsive grid, lightbox, password gate, downloads. |
 | `deploy/` | Dockerfile, docker-compose, backup script, deployment notes. |
+| `tools/loadtest/` | Python load-test client for the publish API plus a throwaway test server. |
 
 The design document with all decisions is
 `lightroom-gallery-implementation-plan.md` (Swedish).
@@ -85,6 +86,16 @@ npm test
 
 The Lightroom plugin has no automated tests; `lightroom-plugin/TESTING.md`
 is the manual checklist to run against a live server.
+
+`tools/loadtest/` stands in for Lightroom when you want to know how the
+server behaves under load: it uploads a folder of JPEGs through the publish
+API and reports latency, throughput and how long it takes before the
+uploaded photos are visible to visitors.
+
+```
+cd tools/loadtest
+./smugbox_loadtest.py --docker --photos ~/Pictures/export --albums 3 --workers 4
+```
 
 ## Configuration
 
