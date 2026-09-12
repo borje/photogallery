@@ -1,9 +1,9 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { RowsPhotoAlbum } from 'react-photo-album'
 import 'react-photo-album/rows.css'
 import './Gallery.css'
-import Lightbox, { IconButton, createIcon, useLightboxState } from 'yet-another-react-lightbox'
+import Lightbox, { IconButton, createIcon, useLightboxState, type ControllerRef } from 'yet-another-react-lightbox'
 import Captions from 'yet-another-react-lightbox/plugins/captions'
 import Counter from 'yet-another-react-lightbox/plugins/counter'
 import Download from 'yet-another-react-lightbox/plugins/download'
@@ -81,6 +81,18 @@ export default function Gallery({ photos }: { photos: Photo[] }) {
   const [infoOpen, setInfoOpen] = useState(false)
   const toggleInfo = useCallback((open: boolean) => setInfoOpen(open), [])
   const items = useMemo(() => photos.map(toGalleryPhoto), [photos])
+  // Entering native fullscreen moves browser focus to the fullscreen element,
+  // an ancestor of the lightbox controller div that yarl's arrow-key handler
+  // is scoped to. Focus on an ancestor doesn't bubble keydown into a
+  // descendant's handler, so arrow keys stop working unless we refocus.
+  const controllerRef = useRef<ControllerRef>(null)
+  useEffect(() => {
+    const onFullscreenChange = () => {
+      if (document.fullscreenElement) controllerRef.current?.focus()
+    }
+    document.addEventListener('fullscreenchange', onFullscreenChange)
+    return () => document.removeEventListener('fullscreenchange', onFullscreenChange)
+  }, [])
   // No slide title: the Captions plugin would draw it as a bar across the top.
   // The title lives in the info panel (and in the image alt) instead.
   const slides = useMemo(() => photos.map((p) => ({ ...toSlide(p), description: slideDescription(p) })), [photos])
@@ -143,7 +155,7 @@ export default function Gallery({ photos }: { photos: Photo[] }) {
         slideshow={{ delay: 4000 }}
         thumbnails={{ width: 96, height: 64, border: 0, gap: 8, padding: 0, imageFit: 'cover' }}
         zoom={{ maxZoomPixelRatio: 2 }}
-        controller={{ closeOnBackdropClick: true }}
+        controller={{ ref: controllerRef, closeOnBackdropClick: true }}
       />
     </>
   )

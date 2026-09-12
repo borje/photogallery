@@ -22,6 +22,14 @@
 .yarl__fullsize:fullscreen .yarl__thumbnails_container {
   display: none;
 }
+/* In native fullscreen, only the close button stays visible in the toolbar
+   (it's always last: our toolbar.buttons ends in 'close', and plugins
+   prepend theirs ahead of it). visibility (not display) so a focused button
+   isn't force-blurred out of the lightbox container, which would break
+   arrow-key navigation. */
+.yarl__fullsize:fullscreen .yarl__toolbar .yarl__button:not(:last-child) {
+  visibility: hidden;
+}
 .yarl__thumbnails_thumbnail {
   border-radius: var(--radius-sm);
   opacity: 0.55;
