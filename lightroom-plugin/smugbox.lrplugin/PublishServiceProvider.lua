@@ -22,6 +22,9 @@ local provider = {}
 -- Publish only; no plain export variant.
 provider.supportsIncrementalPublish = "only"
 
+-- Same camera glyph as the frontend's favicon (frontend/public/favicon.svg).
+provider.small_icon = "icon.png"
+
 -- Service-level settings persisted with the publish connection, plus
 -- defaults for Lightroom's own export settings. The size section stays
 -- visible: the backend generates display sizes from whatever is uploaded,
