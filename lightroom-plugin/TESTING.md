@@ -98,6 +98,14 @@ Check the log after every step below. Server state can be inspected with
 - [ ] Delete the published collection in Lightroom. Expect: album gone from
       the server and its directory removed under `DATA_DIR/photos`.
 - [ ] `smugbox admin gc --dry-run` reports nothing to clean.
+- [ ] Delete the album row with curl first (`DELETE /api/publish/albums/{id}`),
+      then delete the collection in Lightroom. Expect: no dialog; the
+      collection disappears.
+- [ ] Stop the backend container (proxy still answering) and delete a
+      published collection, or remove photos from one and publish. Expect:
+      after the retries, "not deleted on server"; the collection or photos
+      are still listed in Lightroom and can be deleted again once the backend
+      is back.
 
 ## Album sets (nested folders)
 

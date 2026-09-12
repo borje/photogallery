@@ -478,6 +478,23 @@ local function isCollectionSet(info)
 	return info.publishedCollection ~= nil and info.publishedCollection:type() == "LrPublishedCollectionSet"
 end
 
+-- True when the backend itself said the thing is already gone: a 404 whose
+-- body carries one of the given error codes. A bare 404 (no code) comes from
+-- the reverse proxy while the backend container is down and must not make
+-- Lightroom forget records the server still has.
+local function isGone(status, data, ...)
+	if status ~= 404 or type(data) ~= "table" or data.error == nil then
+		return false
+	end
+	for _, code in ipairs({ ... }) do
+		if data.error == code then
+			return true
+		end
+	end
+	return false
+end
+PublishTask.isGone = isGone
+
 function PublishTask.renamePublishedCollection(publishSettings, info)
 	if not info.remoteId then
 		return
@@ -499,13 +516,13 @@ function PublishTask.deletePublishedCollection(publishSettings, info)
 		return
 	end
 	local api = SmugboxAPI.new(publishSettings.serverUrl, publishSettings.apiKey)
-	local ok, result, status
+	local ok, result, status, data
 	if isCollectionSet(info) then
-		ok, result, status = api:deleteFolder(info.remoteId)
+		ok, result, status, data = api:deleteFolder(info.remoteId)
 	else
-		ok, result, status = api:deleteAlbum(info.remoteId)
+		ok, result, status, data = api:deleteAlbum(info.remoteId)
 	end
-	if not ok and status ~= 404 then
+	if not ok and not isGone(status, data, "album_not_found", "folder_not_found") then
 		LrDialogs.message("Smugbox: not deleted on server", tostring(result), "warning")
 	end
 end
@@ -523,8 +540,8 @@ function PublishTask.deletePhotosFromPublishedCollection(publishSettings, arrayO
 	end
 	local failed = 0
 	for _, id in ipairs(arrayOfPhotoIds) do
-		local ok, result, status = api:deletePhoto(albumId, id)
-		if ok or status == 404 then
+		local ok, result, status, data = api:deletePhoto(albumId, id)
+		if ok or isGone(status, data, "photo_not_found", "album_not_found") then
 			deletedCallback(id)
 		else
 			failed = failed + 1
