@@ -43,6 +43,23 @@ local function isFolderGone(ok, status, data)
 end
 PublishTask.isFolderGone = isFolderGone
 
+-- True when the backend itself said the thing is already gone: a 404 whose
+-- body carries one of the given error codes. A bare 404 (no code) comes from
+-- the reverse proxy while the backend container is down and must not make
+-- Lightroom forget records the server still has.
+local function isGone(status, data, ...)
+	if status ~= 404 or type(data) ~= "table" or data.error == nil then
+		return false
+	end
+	for _, code in ipairs({ ... }) do
+		if data.error == code then
+			return true
+		end
+	end
+	return false
+end
+PublishTask.isGone = isGone
+
 -- Walks the chain of published collection sets containing `collection`,
 -- root first, creating a backend folder for any set that doesn't have one
 -- yet and recording its id on the set. Returns ok, and either the innermost
@@ -176,6 +193,33 @@ function PublishTask.resolveCoverId(collection, coverUuid, uploaded)
 	return remoteId
 end
 
+-- Flags every photo Lightroom considers published in `collection` as
+-- modified, so the next Publish re-uploads it. Used after the album had to be
+-- recreated on the server: the old remote ids point at rows that no longer
+-- exist, and only the renditions of the current run would otherwise reach
+-- the new album. Photos uploaded earlier in the same run still carry their
+-- pre-run state here, so they are flagged too. Returns the number flagged;
+-- failures are logged and yield 0.
+function PublishTask.markAllForRepublish(collection)
+	if not collection or collection:type() ~= "LrPublishedCollection" then
+		return 0
+	end
+	local ok, count = LrTasks.pcall(function()
+		local photos = collection:getPublishedPhotos()
+		LrApplication.activeCatalog():withWriteAccessDo("Smugbox: mark photos to re-publish", function()
+			for _, pp in ipairs(photos) do
+				pp:setEditedFlag(true)
+			end
+		end)
+		return #photos
+	end)
+	if not ok then
+		log:warnf("mark photos to re-publish: %s", tostring(count))
+		return 0
+	end
+	return count
+end
+
 -- Sends the cover to the server if it can be resolved; failures are logged,
 -- never fatal, since the photos themselves are already published.
 function PublishTask.pushCover(api, albumId, collection, collectionSettings, uploaded)
@@ -260,6 +304,19 @@ function PublishTask.processRenderedPhotos(functionContext, exportContext)
 		return album.id
 	end
 
+	-- The album may have been removed server-side (CLI, gc). Create a new
+	-- one and flag everything already published so the next Publish fills
+	-- it; this run only carries the renditions Lightroom chose to render.
+	local albumRecreated = false
+	local remarked = 0
+	local function recreateAlbum()
+		log:warnf("album %s gone on server, creating a new one", albumId)
+		albumRecreated = true
+		local newId = createAlbum()
+		remarked = PublishTask.markAllForRepublish(publishedCollection)
+		return newId
+	end
+
 	if not albumId then
 		albumId = createAlbum()
 	else
@@ -269,14 +326,17 @@ function PublishTask.processRenderedPhotos(functionContext, exportContext)
 		if isFolderGone(ok, status, data) and repairParent() then
 			ok, result, status, data = api:updateAlbum(albumId, { parent_id = parentId or "" })
 		end
-		if not ok then
+		if isGone(status, data, "album_not_found") then
+			-- Recover here too, so a run with nothing to render still
+			-- restores the album rather than silently doing nothing.
+			albumId = recreateAlbum()
+		elseif not ok then
 			log:warnf("update album set: %s", tostring(result))
 		end
 	end
 
 	local failures = {}
 	local uploaded = {} -- catalog uuid -> remote id, for the cover lookup
-	local albumRecreated = false
 	for i, rendition in exportContext:renditions({ stopIfCanceled = true }) do
 		progress:setPortionComplete(i - 1, nPhotos)
 		local success, pathOrMessage = rendition:waitForRender()
@@ -299,11 +359,8 @@ function PublishTask.processRenderedPhotos(functionContext, exportContext)
 				ok, result, status, body = api:uploadPhoto(albumId, pathOrMessage, fields, nil)
 			end
 
-			-- The album itself may have been removed server-side (CLI, gc).
-			if not ok and status == 404 and body and body.error == "album_not_found" and not albumRecreated then
-				log:warnf("album %s gone on server, creating a new one", albumId)
-				albumRecreated = true
-				albumId = createAlbum()
+			if isGone(status, body, "album_not_found") and not albumRecreated then
+				albumId = recreateAlbum()
 				ok, result, status, body = api:uploadPhoto(albumId, pathOrMessage, fields, nil)
 			end
 
@@ -327,6 +384,15 @@ function PublishTask.processRenderedPhotos(functionContext, exportContext)
 	progress:done()
 	PublishTask.pushCover(api, albumId, publishedCollection, collectionSettings, uploaded)
 
+	if albumRecreated then
+		LrDialogs.message(
+			"Smugbox: the album was recreated on the server",
+			string.format("The album for this collection no longer existed on the server, so a new one was created. %d previously published photo%s %s marked to re-publish; click Publish again to upload them.",
+				remarked, remarked == 1 and "" or "s", remarked == 1 and "was" or "were"),
+			"info"
+		)
+	end
+
 	if #failures > 0 then
 		local shown = {}
 		for i = 1, math.min(#failures, 10) do
@@ -342,7 +408,6 @@ function PublishTask.processRenderedPhotos(functionContext, exportContext)
 		)
 	end
 end
-
 
 -- Per-collection settings dialog. Values persist with the collection in the
 -- catalog (in clear text, which is acceptable for album passwords).
@@ -527,23 +592,6 @@ end
 local function isCollectionSet(info)
 	return info.publishedCollection ~= nil and info.publishedCollection:type() == "LrPublishedCollectionSet"
 end
-
--- True when the backend itself said the thing is already gone: a 404 whose
--- body carries one of the given error codes. A bare 404 (no code) comes from
--- the reverse proxy while the backend container is down and must not make
--- Lightroom forget records the server still has.
-local function isGone(status, data, ...)
-	if status ~= 404 or type(data) ~= "table" or data.error == nil then
-		return false
-	end
-	for _, code in ipairs({ ... }) do
-		if data.error == code then
-			return true
-		end
-	end
-	return false
-end
-PublishTask.isGone = isGone
 
 function PublishTask.renamePublishedCollection(publishSettings, info)
 	if not info.remoteId then

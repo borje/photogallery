@@ -45,6 +45,14 @@ Check the log after every step below. Server state can be inspected with
       /api/publish/albums/{id}/photos/{photo}`), then republish it from
       Lightroom. Expect: plug-in falls back to a fresh upload and the photo
       reappears with a new id.
+- [ ] Delete the whole album on the server with curl (`DELETE
+      /api/publish/albums/{id}`), change nothing in Lightroom and click
+      Publish. Expect: a new album is created, an info dialog says all
+      previously published photos were marked to re-publish, and they sit in
+      "Modified Photos to Re-publish". Publish again: every photo is back on
+      the server in the new album.
+- [ ] Same, but edit one photo before publishing. Expect: that photo is
+      uploaded in the first run, the rest after the second.
 
 ## Remove photos
 
