@@ -25,6 +25,9 @@ var (
 	ErrNotFound    = errors.New("not found")
 	ErrSlugTaken   = errors.New("slug already taken")
 	ErrPhotoExists = errors.New("photo with this lr_photo_uuid already exists in album")
+	// ErrIdempotencyKeyTaken: a row with the same client idempotency key
+	// already exists; the caller should return that row instead.
+	ErrIdempotencyKeyTaken = errors.New("idempotency key already used")
 )
 
 // DB wraps the SQL connection pool.
@@ -128,4 +131,14 @@ func boolToInt(b bool) int {
 
 type rowScanner interface {
 	Scan(dest ...any) error
+}
+
+// hasIdempotencyKey reports whether table has a row with the given key.
+func (d *DB) hasIdempotencyKey(ctx context.Context, table, key string) bool {
+	if key == "" {
+		return false
+	}
+	var n int
+	err := d.QueryRowContext(ctx, `SELECT COUNT(*) FROM `+table+` WHERE idempotency_key = ?`, key).Scan(&n)
+	return err == nil && n > 0
 }

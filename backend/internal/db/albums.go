@@ -19,6 +19,7 @@ type Album struct {
 	PasswordVersion int
 	IsListed        bool
 	CoverPhotoID    string // "" = first photo in sort order
+	IdempotencyKey  string // client-chosen key of the creating request, "" = none
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 }
@@ -35,13 +36,13 @@ type AlbumSummary struct {
 	ResolvedCover string // cover photo id after fallback to first photo, "" if empty album
 }
 
-const albumCols = `a.id, COALESCE(a.folder_id, ''), a.slug, a.name, COALESCE(a.description, ''), a.password_hash, a.password_version, a.is_listed, COALESCE(a.cover_photo_id, ''), a.created_at, a.updated_at`
+const albumCols = `a.id, COALESCE(a.folder_id, ''), a.slug, a.name, COALESCE(a.description, ''), a.password_hash, a.password_version, a.is_listed, COALESCE(a.cover_photo_id, ''), COALESCE(a.idempotency_key, ''), a.created_at, a.updated_at`
 
 func scanAlbum(r rowScanner) (*Album, error) {
 	var a Album
 	var created, updated string
 	var listed int
-	if err := r.Scan(&a.ID, &a.FolderID, &a.Slug, &a.Name, &a.Description, &a.PasswordHash, &a.PasswordVersion, &listed, &a.CoverPhotoID, &created, &updated); err != nil {
+	if err := r.Scan(&a.ID, &a.FolderID, &a.Slug, &a.Name, &a.Description, &a.PasswordHash, &a.PasswordVersion, &listed, &a.CoverPhotoID, &a.IdempotencyKey, &created, &updated); err != nil {
 		return nil, err
 	}
 	a.IsListed = listed != 0
@@ -50,12 +51,17 @@ func scanAlbum(r rowScanner) (*Album, error) {
 	return &a, nil
 }
 
-// CreateAlbum inserts a new album. Returns ErrSlugTaken on a slug collision.
+// CreateAlbum inserts a new album. Returns ErrIdempotencyKeyTaken when an
+// album with the same IdempotencyKey exists, otherwise ErrSlugTaken on a
+// slug collision.
 func (d *DB) CreateAlbum(ctx context.Context, a *Album) error {
-	_, err := d.ExecContext(ctx, `INSERT INTO albums (id, folder_id, slug, name, description, password_hash, password_version, is_listed, cover_photo_id, created_at, updated_at)
-		VALUES (?, ?, ?, ?, NULLIF(?, ''), ?, ?, ?, NULLIF(?, ''), ?, ?)`,
-		a.ID, nullIfEmpty(a.FolderID), a.Slug, a.Name, a.Description, a.PasswordHash, a.PasswordVersion, boolToInt(a.IsListed), a.CoverPhotoID, formatTime(a.CreatedAt), formatTime(a.UpdatedAt))
+	_, err := d.ExecContext(ctx, `INSERT INTO albums (id, folder_id, slug, name, description, password_hash, password_version, is_listed, cover_photo_id, idempotency_key, created_at, updated_at)
+		VALUES (?, ?, ?, ?, NULLIF(?, ''), ?, ?, ?, NULLIF(?, ''), NULLIF(?, ''), ?, ?)`,
+		a.ID, nullIfEmpty(a.FolderID), a.Slug, a.Name, a.Description, a.PasswordHash, a.PasswordVersion, boolToInt(a.IsListed), a.CoverPhotoID, a.IdempotencyKey, formatTime(a.CreatedAt), formatTime(a.UpdatedAt))
 	if isUniqueViolation(err) {
+		if d.hasIdempotencyKey(ctx, "albums", a.IdempotencyKey) {
+			return ErrIdempotencyKeyTaken
+		}
 		return ErrSlugTaken
 	}
 	if err != nil {
@@ -68,6 +74,13 @@ func (d *DB) CreateAlbum(ctx context.Context, a *Album) error {
 func (d *DB) GetAlbum(ctx context.Context, id string) (*Album, error) {
 	a, err := scanAlbum(d.QueryRowContext(ctx, `SELECT `+albumCols+` FROM albums a WHERE a.id = ?`, id))
 	return a, wrapNotFound(err, "get album")
+}
+
+// GetAlbumByIdempotencyKey returns the album created with the given client
+// key or ErrNotFound.
+func (d *DB) GetAlbumByIdempotencyKey(ctx context.Context, key string) (*Album, error) {
+	a, err := scanAlbum(d.QueryRowContext(ctx, `SELECT `+albumCols+` FROM albums a WHERE a.idempotency_key = ?`, key))
+	return a, wrapNotFound(err, "get album by idempotency key")
 }
 
 // GetAlbumBySlug returns the album with the given slug or ErrNotFound.
@@ -128,7 +141,7 @@ func scanSummary(r rowScanner) (*AlbumSummary, error) {
 	var s AlbumSummary
 	var created, updated string
 	var listed int
-	if err := r.Scan(&s.ID, &s.FolderID, &s.Slug, &s.Name, &s.Description, &s.PasswordHash, &s.PasswordVersion, &listed, &s.CoverPhotoID, &created, &updated,
+	if err := r.Scan(&s.ID, &s.FolderID, &s.Slug, &s.Name, &s.Description, &s.PasswordHash, &s.PasswordVersion, &listed, &s.CoverPhotoID, &s.IdempotencyKey, &created, &updated,
 		&s.PhotoCount, &s.TakenFrom, &s.TakenTo, &s.ResolvedCover); err != nil {
 		return nil, err
 	}

@@ -138,3 +138,9 @@ Check the log after every step below. Server state can be inspected with
       photos stay in the re-publish queue, nothing crashes.
 - [ ] Revoke the API key (`smugbox admin revoke-api-key`) and publish.
       Expect: "API key rejected" message; Test connection fails.
+- [ ] Create a new collection and publish it while the backend is stopped;
+      start the backend during the retries. Expect: the publish completes and
+      `smugbox admin list-albums` shows exactly one album for it, also when
+      the first create reached the backend but its response did not reach
+      Lightroom (for example killing the container right after the row
+      appears).

@@ -12,6 +12,8 @@ import (
 type folderInput struct {
 	Name     *string `json:"name"`
 	ParentID *string `json:"parent_id"` // "" or omitted = root
+	// IdempotencyKey: see albumInput.
+	IdempotencyKey *string `json:"idempotency_key"`
 }
 
 type folderOutput struct {
@@ -78,8 +80,21 @@ func (s *Server) createFolder(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	key, ok := validIdempotencyKey(w, in.IdempotencyKey)
+	if !ok {
+		return
+	}
+	if key != "" {
+		if existing, err := s.db.GetFolderByIdempotencyKey(r.Context(), key); err == nil {
+			writeJSON(w, http.StatusCreated, s.folderOutput(existing))
+			return
+		} else if !errors.Is(err, db.ErrNotFound) {
+			s.internalError(w, r, err)
+			return
+		}
+	}
 	now := s.now()
-	f := &db.Folder{ID: uuid.NewString(), Name: name, CreatedAt: now, UpdatedAt: now}
+	f := &db.Folder{ID: uuid.NewString(), Name: name, IdempotencyKey: key, CreatedAt: now, UpdatedAt: now}
 	if in.ParentID != nil {
 		folderID, ok := s.resolveParentFolder(w, r, *in.ParentID)
 		if !ok {
@@ -91,6 +106,10 @@ func (s *Server) createFolder(w http.ResponseWriter, r *http.Request) {
 	err := withUniqueSlug(s.rand, name, func(slug string) { f.Slug = slug }, func() error {
 		return s.db.CreateFolder(r.Context(), f)
 	})
+	if errors.Is(err, db.ErrIdempotencyKeyTaken) {
+		// Lost a race with a retry of the same request.
+		f, err = s.db.GetFolderByIdempotencyKey(r.Context(), key)
+	}
 	if err != nil {
 		s.internalError(w, r, err)
 		return

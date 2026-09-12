@@ -133,3 +133,28 @@ func TestCreateAlbumWithParent(t *testing.T) {
 		}
 	}
 }
+
+func TestCreateFolderIdempotencyKey(t *testing.T) {
+	e := newEnv(t)
+	body := map[string]any{"name": "Travel", "idempotency_key": "k-folder-1"}
+	first := e.json(http.MethodPost, "/api/publish/folders", body)
+	second := e.json(http.MethodPost, "/api/publish/folders", body)
+	if first.Code != http.StatusCreated || second.Code != http.StatusCreated {
+		t.Fatalf("codes: %d %d", first.Code, second.Code)
+	}
+	var a, b folderOutput
+	decode(t, first, &a)
+	decode(t, second, &b)
+	if a.ID != b.ID || a.Slug != "travel" || b.Slug != "travel" {
+		t.Fatalf("replay should answer with the same folder: %+v vs %+v", a, b)
+	}
+	// Same name, different key: a second folder with a suffixed slug.
+	other := e.createFolder("Travel", "")
+	if other.ID == a.ID || other.Slug == a.Slug {
+		t.Fatalf("different key should create a new folder: %+v", other)
+	}
+	all, err := e.db.ListAllFolders(context.Background())
+	if err != nil || len(all) != 2 {
+		t.Fatalf("folders = %d, err %v", len(all), err)
+	}
+}
