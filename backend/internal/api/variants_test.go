@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -27,9 +28,9 @@ func albumPhotoCount(t *testing.T, e *env, slug string) (int, string) {
 	return len(detail.Photos), detail.CoverPhotoID
 }
 
-// An upload is acknowledged with only the original and the thumb on disk;
-// the photo stays invisible to visitors until the worker has rendered the
-// rest, while the plugin sees it immediately.
+// An upload is acknowledged with only the original on disk; the photo stays
+// invisible to visitors until the worker has rendered the variants, while
+// the plugin sees it immediately.
 func TestUploadIsHiddenUntilVariantsAreReady(t *testing.T) {
 	e := newEnvNoWorker(t)
 	a := e.createAlbum("Pending")
@@ -37,12 +38,12 @@ func TestUploadIsHiddenUntilVariantsAreReady(t *testing.T) {
 	if code != http.StatusCreated {
 		t.Fatalf("upload: %d", code)
 	}
-	if !fileExists(t, e, a.ID, id, "original") || !fileExists(t, e, a.ID, id, "thumb") {
-		t.Fatal("original and thumb must be written in the request")
+	if !fileExists(t, e, a.ID, id, "original") {
+		t.Fatal("original must be written in the request")
 	}
-	for _, v := range []string{"large", "medium", "small", "blur"} {
+	for _, v := range []string{"thumb", "large", "medium", "small", "blur"} {
 		if fileExists(t, e, a.ID, id, v) {
-			t.Fatalf("%s rendered in the request", v)
+			t.Fatalf("%s committed by the request", v)
 		}
 	}
 
@@ -82,7 +83,7 @@ func TestUploadIsHiddenUntilVariantsAreReady(t *testing.T) {
 
 	e.startWorker()
 	e.waitVariants()
-	for _, v := range []string{"large", "medium", "small", "blur"} {
+	for _, v := range []string{"thumb", "large", "medium", "small", "blur"} {
 		if !fileExists(t, e, a.ID, id, v) {
 			t.Fatalf("%s missing after worker", v)
 		}
@@ -219,5 +220,30 @@ func TestVariantWorkerHandlesDeletedPhoto(t *testing.T) {
 	}
 	if len(e.srv.variants.failed) != 0 {
 		t.Fatalf("deleted photo recorded as failure: %v", e.srv.variants.failed)
+	}
+}
+
+// The worker is stopped before the HTTP server finishes draining, so an
+// upload can still be accepted with nobody left to render it. That must not
+// block the request, and the photo must be waiting in the table for the
+// next start.
+func TestUploadAfterTheWorkerStopped(t *testing.T) {
+	e := newEnv(t)
+	a := e.createAlbum("Late")
+	e.stopWorker()
+	id, _ := e.uploadPhoto(a.ID, "lr-1", "late.jpg", testJPEG(t, 700, 500, 1), nil)
+
+	if n, _ := albumPhotoCount(t, e, a.Slug); n != 0 {
+		t.Fatal("photo visible without rendered variants")
+	}
+	pending, err := e.db.ListPhotosPendingVariants(context.Background())
+	if err != nil || len(pending) != 1 || pending[0].ID != id {
+		t.Fatalf("photo not left pending for the next start: %v %v", pending, err)
+	}
+	// The next start renders it.
+	e.startWorker()
+	e.waitVariants()
+	if n, _ := albumPhotoCount(t, e, a.Slug); n != 1 {
+		t.Fatal("photo not visible after the worker was started again")
 	}
 }

@@ -11,11 +11,6 @@ import (
 	"github.com/bege/smugbox/backend/internal/storage"
 )
 
-// allVariants is every display variant in generation order. Production
-// renders Immediate and Deferred in two passes; only these tests want both
-// at once.
-var allVariants = []storage.Variant{storage.Large, storage.Medium, storage.Small, storage.Thumb, storage.Blur}
-
 func loadDims(t *testing.T, path string) (w, h int, img *vips.Image) {
 	t.Helper()
 	img, err := vips.NewImageFromFile(path, &vips.LoadOptions{})
@@ -43,7 +38,7 @@ func TestDeriveVariants(t *testing.T) {
 		t.Fatalf("probe: %+v %v", info, err)
 	}
 	paths := map[storage.Variant]string{}
-	produced, err := Derive(src, info, allVariants, func(v storage.Variant) (string, error) {
+	produced, err := Derive(src, info, Deferred, func(v storage.Variant) (string, error) {
 		p := filepath.Join(dir, string(v)+".jpg")
 		paths[v] = p
 		return p, nil
@@ -95,7 +90,7 @@ func TestDeriveSkipsLargeForSmallOriginals(t *testing.T) {
 	writeFixture(t, src, 1200, 800, 1)
 	info, _ := Probe(src)
 	var got []storage.Variant
-	produced, err := Derive(src, info, allVariants, func(v storage.Variant) (string, error) {
+	produced, err := Derive(src, info, Deferred, func(v storage.Variant) (string, error) {
 		got = append(got, v)
 		return filepath.Join(dir, string(v)+".jpg"), nil
 	})
@@ -128,18 +123,13 @@ func TestDeriveSubsetsAndRejectsOriginal(t *testing.T) {
 		called = append(called, v)
 		return filepath.Join(dir, string(v)+".jpg"), nil
 	}
-	produced, err := Derive(src, info, []storage.Variant{Immediate}, dst)
+	produced, err := Derive(src, info, []storage.Variant{Validate}, dst)
 	if err != nil || len(produced) != 1 || produced[0] != storage.Thumb || len(called) != 1 {
-		t.Fatalf("immediate: %v %v %v", produced, called, err)
+		t.Fatalf("validate: %v %v %v", produced, called, err)
 	}
 	produced, err = Derive(src, info, Deferred, dst)
-	if err != nil || len(produced) != 4 {
+	if err != nil || len(produced) != 5 {
 		t.Fatalf("deferred: %v %v", produced, err)
-	}
-	for _, v := range produced {
-		if v == storage.Thumb {
-			t.Fatal("deferred set rendered the thumb again")
-		}
 	}
 	if _, err := Derive(src, info, []storage.Variant{storage.Original}, dst); err == nil {
 		t.Fatal("original accepted as a derived variant")

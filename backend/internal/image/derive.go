@@ -33,15 +33,20 @@ const (
 	blurSigma   = 2.0
 )
 
-// Immediate is the one variant rendered while the upload request is still
-// in flight. Thumb is cheap (libvips shrinks on load) yet decodes the whole
-// file, so a corrupt upload is rejected in the request instead of being
-// discovered by the background worker after the client was told 201.
-const Immediate = storage.Thumb
+// Validate is the variant rendered while the upload request is still in
+// flight and then thrown away. Thumb is cheap (libvips shrinks on load) yet
+// decodes the whole file, so a corrupt upload is rejected in the request
+// instead of being discovered by the background worker after the client was
+// told 201. Nothing derived is committed there: the request commits only the
+// original, so no failure can leave one variant from the new image next to
+// variants from the old one.
+const Validate = storage.Thumb
 
-// Deferred lists the variants the background worker renders after the
-// upload has been acknowledged.
-var Deferred = []storage.Variant{storage.Large, storage.Medium, storage.Small, storage.Blur}
+// Deferred lists the variants the background worker renders and commits
+// after the upload has been acknowledged. It includes the thumb, which is
+// therefore rendered twice per upload: the throwaway pass in the request is
+// the cheapest way to fail an unreadable file before answering 201.
+var Deferred = []storage.Variant{storage.Thumb, storage.Large, storage.Medium, storage.Small, storage.Blur}
 
 // Derive writes the requested display variants of the JPEG at src. Every
 // variant is rendered directly from the source, never from another variant,

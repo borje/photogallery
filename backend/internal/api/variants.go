@@ -13,9 +13,9 @@ import (
 	"github.com/bege/smugbox/backend/internal/storage"
 )
 
-// variantWorker renders the deferred display variants of uploaded photos
-// outside the request that stored them, so the Lightroom plugin only waits
-// for the upload itself.
+// variantWorker renders the display variants of uploaded photos outside the
+// request that stored them, so the Lightroom plugin only waits for the
+// original to be written.
 //
 // The photos table is the queue: a row with variants_ready = 0 is pending.
 // Nothing about the queue lives only in memory, which is what lets a run
@@ -30,10 +30,11 @@ type variantWorker struct {
 	s    *Server
 	wake chan struct{} // capacity 1: a pending kick, coalesced
 
-	mu     sync.Mutex
-	busy   bool            // drain in progress
-	kicked bool            // a kick has not yet been picked up by the loop
-	failed map[string]bool // photoID:contentHash that failed in this process
+	mu      sync.Mutex
+	busy    bool            // drain in progress
+	kicked  bool            // a kick has not yet been picked up by the loop
+	failed  map[string]bool // photoID:contentHash that failed in this process
+	stopped bool            // run has returned; kicks are only logged
 }
 
 func newVariantWorker(s *Server) *variantWorker {
@@ -42,25 +43,44 @@ func newVariantWorker(s *Server) *variantWorker {
 	return w
 }
 
-// Run drains pending photos until ctx is cancelled. Call it once, in its own
-// goroutine, next to the HTTP server.
+// Run drains pending photos until ctx is cancelled, starting with whatever
+// the table already holds. Call it in its own goroutine, next to the HTTP
+// server; a kick that arrives after it has returned is only logged.
 func (s *Server) Run(ctx context.Context) {
 	s.variants.run(ctx)
 }
 
 // kick asks the worker to look at the table. Safe from any goroutine; a
 // kick while a drain is in progress schedules another drain.
+//
+// The worker is stopped before the HTTP server finishes draining, so an
+// upload that lands in that window has nobody left to render it. That is
+// only logged, not an error: the photo is in the table with
+// variants_ready = 0, so the next start picks it up, and until then
+// visitors do not see it.
 func (w *variantWorker) kick() {
 	w.mu.Lock()
 	w.kicked = true
+	stopped := w.stopped
 	w.mu.Unlock()
 	select {
 	case w.wake <- struct{}{}:
 	default:
 	}
+	if stopped {
+		w.s.log.Warn("upload accepted after the variant worker stopped; its variants are rendered at the next start")
+	}
 }
 
 func (w *variantWorker) run(ctx context.Context) {
+	w.mu.Lock()
+	w.stopped = false
+	w.mu.Unlock()
+	defer func() {
+		w.mu.Lock()
+		w.stopped = true
+		w.mu.Unlock()
+	}()
 	for {
 		select {
 		case <-ctx.Done():
@@ -120,7 +140,7 @@ func (w *variantWorker) drain(ctx context.Context) {
 	}
 }
 
-// generate renders the deferred variants of p from its stored original,
+// generate renders the display variants of p from its stored original,
 // commits them, and marks the row ready. It is a no-op that reports nil
 // when the photo was deleted in the meantime.
 func (w *variantWorker) generate(ctx context.Context, p *db.Photo) error {

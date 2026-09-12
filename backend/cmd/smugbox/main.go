@@ -131,7 +131,9 @@ func serve(cfg config.Config) error {
 	}()
 	// Joined before the deferred database.Close and image.Shutdown above, on
 	// every return path: the worker holds a context.WithoutCancel while it
-	// renders, so it must be waited for rather than only cancelled.
+	// renders, so it must be waited for rather than only cancelled. This
+	// bounds shutdown at the drain timeout plus the photo the worker is on;
+	// anything it has not reached stays pending until the next start.
 	defer func() {
 		stop()
 		<-workerDone

@@ -231,16 +231,17 @@ func (s *Server) ingest(w http.ResponseWriter, r *http.Request, a *db.Album, exi
 			}
 		}
 
-		// Render the thumb now and the rest in the background: the request
-		// returns as soon as the original is safe on disk. The thumb decodes
-		// the whole file, so a corrupt JPEG is still rejected here.
+		// Render a thumb and throw it away: this decodes the whole file, so
+		// a corrupt JPEG is rejected here rather than by the worker after
+		// the client was told 201. The worker renders the copy that is kept,
+		// which leaves the original as the only file this request commits.
 		thumb, err := s.store.NewStaged()
 		if err != nil {
 			s.internalError(w, r, err)
 			return
 		}
 		defer thumb.Abort()
-		if _, err := image.Derive(up.staged.Path(), info, []storage.Variant{image.Immediate}, func(storage.Variant) (string, error) {
+		if _, err := image.Derive(up.staged.Path(), info, []storage.Variant{image.Validate}, func(storage.Variant) (string, error) {
 			return thumb.Path(), nil
 		}); err != nil {
 			s.log.Warn("derive thumb", "album", a.ID, "photo", photo.ID, "err", err)
@@ -254,10 +255,6 @@ func (s *Server) ingest(w http.ResponseWriter, r *http.Request, a *db.Album, exi
 				s.internalError(w, r, err)
 				return
 			}
-		}
-		if err := s.store.Commit(thumb, a.ID, photo.ID, image.Immediate); err != nil {
-			s.internalError(w, r, err)
-			return
 		}
 		if err := s.store.Commit(up.staged, a.ID, photo.ID, storage.Original); err != nil {
 			s.internalError(w, r, err)
