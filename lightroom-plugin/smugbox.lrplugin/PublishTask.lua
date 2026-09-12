@@ -201,6 +201,9 @@ function PublishTask.processRenderedPhotos(functionContext, exportContext)
 		title = string.format("Publishing %d photo%s to Smugbox", nPhotos, nPhotos == 1 and "" or "s"),
 		functionContext = functionContext,
 	})
+	api.isCanceled = function()
+		return progress:isCanceled()
+	end
 
 	local parentOk, parentId = PublishTask.resolveParent(api, publishedCollection)
 	if not parentOk then

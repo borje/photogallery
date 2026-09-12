@@ -20,6 +20,11 @@ SmugboxAPI.__index = SmugboxAPI
 local TIMEOUT = 30 -- seconds, per connection phase
 local UPLOAD_TIMEOUT = 600
 
+-- Seconds to wait before each retry. Long enough to sit out a container
+-- redeploy, during which the reverse proxy answers for a backend that is not
+-- there.
+local RETRY_DELAYS = { 5, 15, 45, 90, 120 }
+
 function SmugboxAPI.normalizeUrl(url)
 	url = Util.trim(url)
 	url = url:gsub("/+$", "")
@@ -82,6 +87,36 @@ local function parseResponse(body, headers, what)
 	return false, msg, status, data
 end
 
+-- True for failures a server restart or redeploy explains, so retrying makes
+-- sense. The backend's own 404s always carry an error code in the body; a
+-- bare 404 comes from the reverse proxy while the container is down.
+local function isTransient(status, data)
+	if status == nil or status == 0 or status >= 500 then
+		return true
+	end
+	return status == 404 and (data == nil or data.error == nil)
+end
+
+-- Calls send (returns body, headers) and retries transient failures. Stops
+-- early if self.isCanceled is set and returns true.
+local function sendWithRetry(self, send, what)
+	local attempt = 1
+	while true do
+		local body, headers = send()
+		local ok, result, status, data = parseResponse(body, headers, what)
+		local delay = RETRY_DELAYS[attempt]
+		if ok or delay == nil or not isTransient(status, data) then
+			return ok, result, status, data
+		end
+		if self.isCanceled and self.isCanceled() then
+			return ok, result, status, data
+		end
+		log:warnf("%s -> %s, retrying in %d s", what, tostring(result), delay)
+		LrTasks.sleep(delay)
+		attempt = attempt + 1
+	end
+end
+
 -- JSON request. method is GET, POST, PUT or DELETE.
 function SmugboxAPI:request(method, path, bodyTable, what)
 	what = what or (method .. " " .. path)
@@ -90,14 +125,18 @@ function SmugboxAPI:request(method, path, bodyTable, what)
 	end
 	local url = self.baseUrl .. path
 	log:tracef("%s %s", method, url)
-	local response, headers
+	local send
 	if method == "GET" then
-		response, headers = LrHttp.get(url, self:headers(false), TIMEOUT)
+		send = function()
+			return LrHttp.get(url, self:headers(false), TIMEOUT)
+		end
 	else
 		local body = json.encode(bodyTable or setmetatable({}, { __jsontype = "object" }))
-		response, headers = LrHttp.post(url, body, self:headers(true), method, TIMEOUT)
+		send = function()
+			return LrHttp.post(url, body, self:headers(true), method, TIMEOUT)
+		end
 	end
-	local ok, result, status, data = parseResponse(response, headers, what)
+	local ok, result, status, data = sendWithRetry(self, send, what)
 	if not ok then
 		log:warnf("%s %s -> %s", method, url, tostring(result))
 	end
@@ -169,8 +208,9 @@ function SmugboxAPI:uploadPhoto(albumId, filePath, fields, photoId)
 		contentType = "image/jpeg",
 	})
 	log:tracef("POST %s (multipart, %s)", url, tostring(fields.filename))
-	local response, headers = LrHttp.postMultipart(url, chunks, self:headers(false), UPLOAD_TIMEOUT)
-	local ok, result, status, data = parseResponse(response, headers, photoId and "Replace photo" or "Upload photo")
+	local ok, result, status, data = sendWithRetry(self, function()
+		return LrHttp.postMultipart(url, chunks, self:headers(false), UPLOAD_TIMEOUT)
+	end, photoId and "Replace photo" or "Upload photo")
 	if not ok then
 		log:warnf("upload %s -> %s", url, tostring(result))
 	end
