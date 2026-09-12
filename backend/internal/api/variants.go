@@ -24,11 +24,14 @@ import (
 // libvips already spreads a single resize across all cores, and a single
 // worker leaves the upload path with CPU to spare.
 //
-// A photo whose generation fails is logged, left hidden, and not retried
-// until the next start, so one broken file cannot spin the worker.
+// A photo whose generation fails is logged and left hidden rather than
+// retried at once, so one broken file cannot spin the worker; retryInterval
+// then forgets the failure and tries again. The same tick is what recovers
+// from a failed drain, which leaves no kick behind.
 type variantWorker struct {
-	s    *Server
-	wake chan struct{} // capacity 1: a pending kick, coalesced
+	s     *Server
+	wake  chan struct{} // capacity 1: a pending kick, coalesced
+	retry time.Duration // how often to drain again and forget failures
 
 	mu      sync.Mutex
 	busy    bool            // drain in progress
@@ -37,8 +40,13 @@ type variantWorker struct {
 	stopped bool            // run has returned; kicks are only logged
 }
 
+// retryInterval is how long a photo whose generation failed stays skipped,
+// and how long the worker waits before draining a table it could not read.
+// A broken file costs one decode and one log line per interval.
+const retryInterval = 5 * time.Minute
+
 func newVariantWorker(s *Server) *variantWorker {
-	w := &variantWorker{s: s, wake: make(chan struct{}, 1), failed: map[string]bool{}}
+	w := &variantWorker{s: s, wake: make(chan struct{}, 1), retry: retryInterval, failed: map[string]bool{}}
 	w.kick() // whatever was pending when the process last stopped
 	return w
 }
@@ -81,11 +89,19 @@ func (w *variantWorker) run(ctx context.Context) {
 		w.stopped = true
 		w.mu.Unlock()
 	}()
+	tick := time.NewTicker(w.retry)
+	defer tick.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-w.wake:
+		case <-tick.C:
+			// Nothing kicked, so either a drain failed to read the table or
+			// a photo failed to render. Forget the failures and look again.
+			w.mu.Lock()
+			w.failed = map[string]bool{}
+			w.mu.Unlock()
 		}
 		w.mu.Lock()
 		w.kicked, w.busy = false, true
@@ -111,7 +127,7 @@ func (w *variantWorker) drain(ctx context.Context) {
 	photos, err := w.s.db.ListPhotosPendingVariants(ctx)
 	if err != nil {
 		if ctx.Err() == nil {
-			w.s.log.Error("list photos pending variants", "err", err)
+			w.s.log.Error("list photos pending variants", "retry_in", w.retry, "err", err)
 		}
 		return
 	}
@@ -130,7 +146,7 @@ func (w *variantWorker) drain(ctx context.Context) {
 		// Once the resize has started, finish committing it even if the
 		// process is shutting down: the files and the flag must agree.
 		if err := w.generate(context.WithoutCancel(ctx), p); err != nil {
-			w.s.log.Error("generate variants; photo stays hidden until the next restart", "album", p.AlbumID, "photo", p.ID, "err", err)
+			w.s.log.Error("generate variants; photo stays hidden until the next retry", "album", p.AlbumID, "photo", p.ID, "retry_in", w.retry, "err", err)
 			w.mu.Lock()
 			w.failed[key] = true
 			w.mu.Unlock()

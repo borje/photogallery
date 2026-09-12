@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func fileExists(t *testing.T, e *env, albumID, photoID, variant string) bool {
@@ -245,5 +246,50 @@ func TestUploadAfterTheWorkerStopped(t *testing.T) {
 	e.waitVariants()
 	if n, _ := albumPhotoCount(t, e, a.Slug); n != 1 {
 		t.Fatal("photo not visible after the worker was started again")
+	}
+}
+
+// A photo whose generation fails is skipped, but only until the retry tick
+// forgets the failure: a transient error must not hide it until a restart.
+func TestVariantWorkerRetriesAfterAFailure(t *testing.T) {
+	e := newEnvNoWorker(t)
+	e.srv.variants.retry = 5 * time.Millisecond
+	a := e.createAlbum("Retry")
+	id, _ := e.uploadPhoto(a.ID, "lr-1", "r.jpg", testJPEG(t, 700, 500, 1), nil)
+
+	// Take the original away so the first generation cannot read it.
+	original := filepath.Join(e.store.Root(), "photos", a.ID, id, "original.jpg")
+	aside := filepath.Join(t.TempDir(), "original.jpg")
+	if err := os.Rename(original, aside); err != nil {
+		t.Fatal(err)
+	}
+	e.startWorker()
+	waitFor(t, "the failure to be recorded", func() bool {
+		e.srv.variants.mu.Lock()
+		defer e.srv.variants.mu.Unlock()
+		return len(e.srv.variants.failed) == 1
+	})
+	if n, _ := albumPhotoCount(t, e, a.Slug); n != 0 {
+		t.Fatal("photo visible after a failed generation")
+	}
+
+	if err := os.Rename(aside, original); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the photo to be rendered on a later tick", func() bool {
+		n, _ := albumPhotoCount(t, e, a.Slug)
+		return n == 1
+	})
+}
+
+// waitFor polls cond until it holds, or fails the test.
+func waitFor(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(30 * time.Second)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s", what)
+		}
+		time.Sleep(2 * time.Millisecond)
 	}
 }

@@ -11,18 +11,18 @@ import (
 	"github.com/bege/smugbox/backend/internal/db"
 )
 
-// Unlock attempts are limited twice: per client IP across all albums (which
-// bounds bcrypt work and limiter memory per attacker) and per (IP, slug).
-// Behind a proxy without TRUSTED_PROXY_CIDR every visitor shares the proxy's
-// IP, so the IP bucket is generous.
+// Unlock attempts are limited per (IP, slug). There is deliberately no
+// bucket per IP across all albums: behind a proxy without
+// TRUSTED_PROXY_CIDR every visitor shares the proxy's address, so such a
+// bucket is one bucket for the whole site and a single client emptying it
+// locks every visitor out of every album. unlockMaxKeys is what bounds
+// limiter memory against one client spraying slugs.
 const (
-	unlockBurst          = 5
-	unlockRefillPerMin   = 5.0
-	unlockIPBurst        = 30
-	unlockIPRefillPerMin = 30.0
-	unlockMaxKeys        = 10000        // per limiter
-	sessionTTL           = 24 * 60 * 60 // seconds
-	maxUnlockPasswordLn  = 256
+	unlockBurst         = 5
+	unlockRefillPerMin  = 5.0
+	unlockMaxKeys       = 10000        // per limiter
+	sessionTTL          = 24 * 60 * 60 // seconds
+	maxUnlockPasswordLn = 256
 )
 
 // POST /api/albums/{slug}/unlock {"password": "..."}
@@ -41,10 +41,6 @@ func (s *Server) unlockAlbum(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ip := s.clientIP(r)
-	if ok, wait := s.ipLimiter.Allow(ip); !ok {
-		rateLimited(w, wait)
-		return
-	}
 	if ok, wait := s.limiter.Allow(ip + "|" + slug); !ok {
 		rateLimited(w, wait)
 		return

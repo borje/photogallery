@@ -238,7 +238,7 @@ func TestUnlockRateLimitAndTrustedProxy(t *testing.T) {
 	}
 }
 
-func TestUnlockIPLimitAcrossSlugs(t *testing.T) {
+func TestUnlockLimitIsPerSlug(t *testing.T) {
 	e := newEnv(t)
 	post := func(slug string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodPost, "/api/albums/"+slug+"/unlock", strings.NewReader(`{"password":"nope"}`))
@@ -247,39 +247,36 @@ func TestUnlockIPLimitAcrossSlugs(t *testing.T) {
 		e.srv.ServeHTTP(rec, req)
 		return rec
 	}
-	// One IP spraying many well-formed slugs must hit the per-IP bucket,
-	// and the per-slug map must not grow past what that bucket admits.
-	limited := 0
+	// Each album has its own bucket, so traffic against one slug can never
+	// rate-limit another: without that, one client behind the same proxy
+	// address as every visitor would lock the whole site out.
 	for i := 0; i < 50; i++ {
-		if rec := post(fmt.Sprintf("guess-%d", i)); rec.Code == 429 {
-			limited++
-		} else if rec.Code != 401 {
+		if rec := post(fmt.Sprintf("guess-%d", i)); rec.Code != 401 {
 			t.Fatalf("slug %d: %d %s", i, rec.Code, rec.Body.String())
 		}
 	}
-	if limited != 50-unlockIPBurst {
-		t.Fatalf("429s = %d, want %d", limited, 50-unlockIPBurst)
+	if n := e.srv.limiter.Len(); n != 50 {
+		t.Fatalf("per-slug buckets = %d, want 50", n)
 	}
-	if n := e.srv.limiter.Len(); n != unlockIPBurst {
-		t.Fatalf("per-slug buckets = %d, want %d", n, unlockIPBurst)
+	// One slug still runs out after its own burst.
+	for i := 0; i < unlockBurst; i++ {
+		post("guess-0")
 	}
-	if n := e.srv.ipLimiter.Len(); n != 1 {
-		t.Fatalf("ip buckets = %d, want 1", n)
+	if rec := post("guess-0"); rec.Code != 429 {
+		t.Fatalf("repeat attempts on one slug: %d", rec.Code)
+	}
+	if rec := post("guess-1"); rec.Code != 401 {
+		t.Fatalf("another slug must be unaffected: %d", rec.Code)
 	}
 
-	// Malformed slugs are refused before either limiter or bcrypt runs.
+	// Malformed slugs are refused before the limiter or bcrypt runs.
 	e.now = e.now.Add(time.Hour)
 	for _, slug := range []string{"..%2Fx", "UPPER", strings.Repeat("a", 200), "trailing-"} {
 		if rec := post(slug); rec.Code != 401 {
 			t.Fatalf("slug %q: %d", slug, rec.Code)
 		}
 	}
-	if n := e.srv.limiter.Len(); n != unlockIPBurst {
+	if n := e.srv.limiter.Len(); n != 50 {
 		t.Fatalf("malformed slugs created buckets: %d", n)
-	}
-	// The IP bucket still has the one entry from before; a malformed slug
-	// does not consume from it either.
-	if rec := post("real-slug"); rec.Code != 401 {
-		t.Fatalf("after hour: %d", rec.Code)
 	}
 }

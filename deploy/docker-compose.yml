@@ -21,7 +21,9 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8080}
       SITE_TITLE: ${SITE_TITLE:-Börjes Fotosida}
-      TRUSTED_PROXY_CIDR: ${TRUSTED_PROXY_CIDR:-}
+      # Defaults to the RFC 1918 ranges a reverse proxy on the same host
+      # uses; narrow it to your proxy's network in .env.
+      TRUSTED_PROXY_CIDR: ${TRUSTED_PROXY_CIDR:-10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}
       MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-100}
     volumes:
       - smugbox-data:/data

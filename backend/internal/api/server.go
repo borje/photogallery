@@ -46,9 +46,8 @@ type Server struct {
 	zipSem    chan struct{}  // bounds concurrent zip downloads
 	deriveSem chan struct{}  // bounds libvips work inside upload requests
 
-	sessions  *auth.Sessions
-	limiter   *auth.RateLimiter // per (ip, slug)
-	ipLimiter *auth.RateLimiter // per ip
+	sessions *auth.Sessions
+	limiter  *auth.RateLimiter // per (ip, slug); see unlock.go
 }
 
 // jsonTimeout bounds handlers that produce small JSON responses. Uploads
@@ -82,7 +81,6 @@ func New(d Deps) (*Server, error) {
 	}
 	s.sessions = auth.NewSessions(secret, sessionTTL*time.Second, s.now)
 	s.limiter = auth.NewRateLimiter(unlockBurst, unlockRefillPerMin, unlockMaxKeys, s.now)
-	s.ipLimiter = auth.NewRateLimiter(unlockIPBurst, unlockIPRefillPerMin, unlockMaxKeys, s.now)
 
 	mux := http.NewServeMux()
 	s.routes(mux)

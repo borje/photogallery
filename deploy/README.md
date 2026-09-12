@@ -27,9 +27,9 @@ Two things matter for this service:
   generous value, and no request body limit below `MAX_UPLOAD_MB`).
 - **Client IPs.** Set `TRUSTED_PROXY_CIDR` to the proxy's network so the
   unlock rate limiter uses the visitor's IP from `X-Forwarded-For` rather than
-  the proxy's. Without it every visitor shares the proxy's IP, and the
-  per-IP unlock limit (30 attempts per minute across all albums) applies to
-  all of them together.
+  the proxy's. The compose file defaults it to the RFC 1918 ranges; narrow it
+  to your proxy's network. Without it every visitor shares the proxy's IP and
+  they share one unlock bucket per album (5 attempts per minute).
 
 The container sets `X-Content-Type-Options` and `Content-Security-Policy`
 itself; add HSTS at the proxy.
