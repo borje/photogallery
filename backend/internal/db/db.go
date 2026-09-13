@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"time"
 
 	"github.com/pressly/goose/v3"
@@ -64,8 +65,12 @@ func Migrate(ctx context.Context, sqldb *sql.DB) error {
 	if err != nil {
 		return err
 	}
-	if _, err := p.Up(ctx); err != nil {
+	results, err := p.Up(ctx)
+	if err != nil {
 		return fmt.Errorf("migrate: %w", err)
+	}
+	for _, r := range results {
+		slog.Info("applied migration", "version", r.Source.Version, "duration_ms", r.Duration.Milliseconds())
 	}
 	return nil
 }
