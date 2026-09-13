@@ -10,7 +10,7 @@ Three parts, one repository:
 
 | Directory | What it is |
 |---|---|
-| `lightroom-plugin/` | Lightroom Classic publish service (Lua). One published collection = one album. |
+| `lightroom-plugin/` | Lightroom Classic publish service (Lua). One published collection = one album; collection sets become nested folders. |
 | `backend/` | Go server: publish API for the plugin, visitor API, image processing with libvips, SQLite, static hosting of the frontend. |
 | `frontend/` | React single-page app: album list, album page with responsive grid, lightbox, password gate, downloads. |
 | `deploy/` | Dockerfile, docker-compose, backup script, deployment notes. |
@@ -64,6 +64,7 @@ smugbox admin list-api-keys
 smugbox admin revoke-api-key <id>
 smugbox admin list-albums
 smugbox admin set-password <slug> [--clear]
+smugbox admin delete-album <slug>
 smugbox admin gc [--dry-run]           # remove orphaned files
 ```
 
@@ -90,8 +91,10 @@ npm run dev
 npm test
 ```
 
-The Lightroom plugin has no automated tests; `lightroom-plugin/TESTING.md`
-is the manual checklist to run against a live server.
+The Lightroom plugin has Lua unit tests against a stubbed SDK
+(`lightroom-plugin/test_*.lua`, run individually with `lua test_foo.lua`);
+`lightroom-plugin/TESTING.md` is the manual checklist to run against a live
+server.
 
 `tools/loadtest/` stands in for Lightroom when you want to know how the
 server behaves under load: it uploads a folder of JPEGs through the publish
@@ -108,6 +111,7 @@ cd tools/loadtest
 | Variable | Default | Purpose |
 |---|---|---|
 | `PUBLIC_BASE_URL` | `http://localhost:8080` | Public origin used in links the plugin records. |
+| `SITE_TITLE` | `Smugbox` | Title shown in the browser tab and page header. |
 | `DATA_DIR` | `./data` | SQLite database and photo files. |
 | `FRONTEND_DIR` | unset | Built frontend to serve; unset gives 404 for non-API paths. |
 | `LISTEN_ADDR` | `:8080` | Listen address. |
@@ -119,11 +123,12 @@ cd tools/loadtest
 
 - `POST/PUT/DELETE /api/publish/albums[/{id}]` and
   `POST/PUT/DELETE /api/publish/albums/{id}/photos[/{photo_id}]`,
-  `PUT .../order`, `GET .../photos`, `GET /api/publish/ping`.
+  `PUT .../order`, `GET .../photos`, `GET /api/publish/ping`,
+  `POST/PUT/DELETE /api/publish/folders[/{id}]`.
   Bearer API key required. Used by the plugin.
-- `GET /api/albums`, `GET /api/albums/{slug}`, `GET .../cover`,
+- `GET /api/site`, `GET /api/albums`, `GET /api/albums/{slug}`, `GET .../cover`,
   `GET .../photos/{id}/{variant}[?download=1]`, `GET .../download`,
-  `POST .../unlock`. Used by the frontend.
+  `POST .../unlock`, `GET /api/folders/{slug}`. Used by the frontend.
 - `GET /api/healthz`.
 
 Errors are JSON: `{"error": "snake_case_code", "message": "optional detail"}`.

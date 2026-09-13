@@ -12,7 +12,8 @@ docker compose exec smugbox smugbox admin create-api-key --label "Lightroom"
 
 Paste the printed key into the Lightroom plug-in (Publishing Manager >
 Smugbox). Other admin commands: `list-albums`, `list-api-keys`,
-`revoke-api-key <id>`, `set-password <slug> [--clear]`, `gc [--dry-run]`.
+`revoke-api-key <id>`, `set-password <slug> [--clear]`, `delete-album <slug>`,
+`gc [--dry-run]`.
 `gc` can run while the container is serving; it only touches files older
 than an hour that no database row references.
 
