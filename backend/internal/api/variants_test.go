@@ -1,10 +1,13 @@
 package api
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -110,7 +113,8 @@ func TestVariantWorkerResumesAfterRestart(t *testing.T) {
 	p2, _ := e.uploadPhoto(a.ID, "lr-2", "2.jpg", jpg, nil)
 	// The process died here.
 
-	restarted, err := New(Deps{DB: e.db, Store: e.store, Cfg: e.srv.cfg, Log: e.srv.log, Now: e.srv.now, Rand: e.srv.rand})
+	var logs bytes.Buffer
+	restarted, err := New(Deps{DB: e.db, Store: e.store, Cfg: e.srv.cfg, Log: slog.New(slog.NewTextHandler(&logs, nil)), Now: e.srv.now, Rand: e.srv.rand})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,6 +130,12 @@ func TestVariantWorkerResumesAfterRestart(t *testing.T) {
 	}
 	if n, _ := albumPhotoCount(t, e, a.Slug); n != 2 {
 		t.Fatalf("visible after restart: %d", n)
+	}
+	// Each photo taken from the queue is logged at info with what is left.
+	for _, want := range []string{"remaining=1", "remaining=0"} {
+		if !strings.Contains(logs.String(), want) {
+			t.Fatalf("log lacks %s:\n%s", want, logs.String())
+		}
 	}
 }
 

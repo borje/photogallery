@@ -131,7 +131,7 @@ func (w *variantWorker) drain(ctx context.Context) {
 		}
 		return
 	}
-	for _, p := range photos {
+	for i, p := range photos {
 		if ctx.Err() != nil {
 			return
 		}
@@ -152,7 +152,9 @@ func (w *variantWorker) drain(ctx context.Context) {
 			w.mu.Unlock()
 			continue
 		}
-		w.s.log.Debug("variants ready", "album", p.AlbumID, "photo", p.ID, "duration_ms", time.Since(start).Milliseconds())
+		// remaining counts the photos behind this one in this drain's
+		// snapshot; uploads that arrive meanwhile show up in the next drain.
+		w.s.log.Info("variants ready", "album", p.AlbumID, "photo", p.ID, "duration_ms", time.Since(start).Milliseconds(), "remaining", len(photos)-i-1)
 	}
 }
 
