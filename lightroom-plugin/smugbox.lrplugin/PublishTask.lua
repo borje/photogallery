@@ -10,6 +10,7 @@ local LrErrors = import "LrErrors"
 local LrPathUtils = import "LrPathUtils"
 local LrProgressScope = import "LrProgressScope"
 local LrTasks = import "LrTasks"
+local LrUUID = import "LrUUID"
 local LrView = import "LrView"
 
 local json = require "dkjson"
@@ -35,11 +36,117 @@ function PublishTask.albumFields(name, collectionSettings, parentId)
 	return fields
 end
 
+-- True when the backend rejected a request because the folder named by its
+-- parent_id no longer exists: one of the collection sets has a stale remote
+-- id and the chain needs repairing.
+local function isFolderGone(ok, status, data)
+	return not ok and status == 400 and type(data) == "table" and data.error == "folder_not_found"
+end
+PublishTask.isFolderGone = isFolderGone
+
+-- True when the backend itself said the thing is already gone: a 404 whose
+-- body carries one of the given error codes. A bare 404 (no code) comes from
+-- the reverse proxy while the backend container is down and must not make
+-- Lightroom forget records the server still has.
+local function isGone(status, data, ...)
+	if status ~= 404 or type(data) ~= "table" or data.error == nil then
+		return false
+	end
+	for _, code in ipairs({ ... }) do
+		if data.error == code then
+			return true
+		end
+	end
+	return false
+end
+PublishTask.isGone = isGone
+
+-- The first `max` items, with a count of what was left out, for a dialog
+-- that must not grow past the screen.
+local function firstLines(items, max)
+	local shown = {}
+	for i = 1, math.min(#items, max) do
+		shown[i] = items[i]
+	end
+	if #items > max then
+		table.insert(shown, string.format("... and %d more", #items - max))
+	end
+	return shown
+end
+
+-- A create carries an idempotency key so that a retry after a lost response
+-- returns the row the first attempt made instead of a second album or set.
+-- The key has to outlive the call: when the retry ladder is exhausted and
+-- the user publishes again, that is still the same logical create and must
+-- present the same key.
+--
+-- It lives in the catalog's plugin properties, keyed by the collection's
+-- local identifier, rather than in collectionSettings, which the settings
+-- dialog owns and rewrites. It is dropped as soon as the create has been
+-- recorded, so the next create for the same collection (after the album was
+-- deleted server-side, say) mints a fresh one.
+local function createKeyProperty(collection)
+	local ok, id = pcall(function() return collection.localIdentifier end)
+	if not ok or id == nil then
+		return nil
+	end
+	return "createKey." .. tostring(id)
+end
+
+-- Returns the pending create key for `collection`, minting and storing one
+-- if there is none. A collection without a stable identity, or a catalog
+-- that refuses the write, falls back to a per-call key: no worse than
+-- having no persistence at all.
+function PublishTask.pendingCreateKey(collection)
+	local prop = collection and createKeyProperty(collection)
+	if not prop then
+		return LrUUID.generateUUID()
+	end
+	local catalog = LrApplication.activeCatalog()
+	local read, existing = pcall(function() return catalog:getPropertyForPlugin(_PLUGIN, prop) end)
+	if read and type(existing) == "string" and existing ~= "" then
+		return existing
+	end
+	local key = LrUUID.generateUUID()
+	local ok, err = pcall(function()
+		catalog:withWriteAccessDo("Smugbox: remember create key", function()
+			catalog:setPropertyForPlugin(_PLUGIN, prop, key)
+		end)
+	end)
+	if not ok then
+		log:warnf("could not store the create key for %s: %s", prop, tostring(err))
+	end
+	return key
+end
+
+-- Forgets the key once the create has been recorded, so the collection is
+-- not tied to it for the rest of its life.
+function PublishTask.clearPendingCreateKey(collection)
+	local prop = collection and createKeyProperty(collection)
+	if not prop then
+		return
+	end
+	local catalog = LrApplication.activeCatalog()
+	local ok, err = pcall(function()
+		catalog:withWriteAccessDo("Smugbox: forget create key", function()
+			catalog:setPropertyForPlugin(_PLUGIN, prop, nil)
+		end)
+	end)
+	if not ok then
+		log:warnf("could not clear the create key for %s: %s", prop, tostring(err))
+	end
+end
+
 -- Walks the chain of published collection sets containing `collection`,
 -- root first, creating a backend folder for any set that doesn't have one
 -- yet and recording its id on the set. Returns ok, and either the innermost
 -- folder id ("" at the root) or an error message.
-function PublishTask.resolveParent(api, collection)
+--
+-- With `repair`, every stored id is verified against the server first (the
+-- update doubles as a name/parent reconcile) and a set whose folder was
+-- deleted server-side gets a new one. Callers ask for this only after a
+-- request failed with folder_not_found, so the normal path costs nothing.
+function PublishTask.resolveParent(api, collection, repair)
 	if not collection then
 		return true, nil
 	end
@@ -52,8 +159,21 @@ function PublishTask.resolveParent(api, collection)
 	local parentId = nil
 	for _, s in ipairs(chain) do
 		local id = s:getRemoteId()
+		if id and repair then
+			local ok, result, status, data = api:updateFolder(id, { name = s:getName(), parent_id = parentId or "" })
+			if not ok and isGone(status, data, "folder_not_found") then
+				log:warnf("album set %s gone on server, creating a new one", id)
+				id = nil
+			elseif not ok then
+				return false, result
+			end
+		end
 		if not id then
-			local ok, folder = api:createFolder({ name = s:getName(), parent_id = parentId })
+			local ok, folder = api:createFolder({
+				name = s:getName(),
+				parent_id = parentId,
+				idempotency_key = PublishTask.pendingCreateKey(s),
+			})
 			if not ok then
 				return false, folder
 			end
@@ -62,6 +182,7 @@ function PublishTask.resolveParent(api, collection)
 				s:setRemoteId(id)
 				s:setRemoteUrl(folder.url)
 			end)
+			PublishTask.clearPendingCreateKey(s)
 			log:infof("created album set %s (%s)", id, folder.url)
 		end
 		parentId = id
@@ -91,8 +212,8 @@ function PublishTask.metadataFields(photo, renderedPath)
 
 	local keywords = {}
 	local kw = photo:getFormattedMetadata("keywordTagsForExport") or ""
-	for k in string.gmatch(kw, "[^,]+") do
-		k = Util.trim(k)
+	for raw in string.gmatch(kw, "[^,]+") do
+		local k = Util.trim(raw)
 		if k ~= "" then
 			table.insert(keywords, k)
 		end
@@ -154,6 +275,33 @@ function PublishTask.resolveCoverId(collection, coverUuid, uploaded)
 	return remoteId
 end
 
+-- Flags every photo Lightroom considers published in `collection` as
+-- modified, so the next Publish re-uploads it. Used after the album had to be
+-- recreated on the server: the old remote ids point at rows that no longer
+-- exist, and only the renditions of the current run would otherwise reach
+-- the new album. Photos uploaded earlier in the same run still carry their
+-- pre-run state here, so they are flagged too. Returns the number flagged;
+-- failures are logged and yield 0.
+function PublishTask.markAllForRepublish(collection)
+	if not collection or collection:type() ~= "LrPublishedCollection" then
+		return 0
+	end
+	local ok, count = LrTasks.pcall(function()
+		local photos = collection:getPublishedPhotos()
+		LrApplication.activeCatalog():withWriteAccessDo("Smugbox: mark photos to re-publish", function()
+			for _, pp in ipairs(photos) do
+				pp:setEditedFlag(true)
+			end
+		end)
+		return #photos
+	end)
+	if not ok then
+		log:warnf("mark photos to re-publish: %s", tostring(count))
+		return 0
+	end
+	return count
+end
+
 -- Sends the cover to the server if it can be resolved; failures are logged,
 -- never fatal, since the photos themselves are already published.
 function PublishTask.pushCover(api, albumId, collection, collectionSettings, uploaded)
@@ -211,8 +359,28 @@ function PublishTask.processRenderedPhotos(functionContext, exportContext)
 		stopWithError("Smugbox: " .. tostring(parentId))
 	end
 
+	-- Re-resolves the set chain after the server reported a stale folder id.
+	-- Returns true when the chain was repaired and parentId updated.
+	local function repairParent()
+		local ok, repaired = PublishTask.resolveParent(api, publishedCollection, true)
+		if not ok then
+			log:warnf("repair album set chain: %s", tostring(repaired))
+			return false
+		end
+		parentId = repaired
+		return true
+	end
+
 	local function createAlbum()
-		local ok, album = api:createAlbum(PublishTask.albumFields(albumName, collectionSettings, parentId))
+		local fields = PublishTask.albumFields(albumName, collectionSettings, parentId)
+		-- One key for this create, including the repair retry below and any
+		-- later Publish that follows a create whose response was lost.
+		fields.idempotency_key = PublishTask.pendingCreateKey(publishedCollection)
+		local ok, album, status, data = api:createAlbum(fields)
+		if isFolderGone(ok, status, data) and repairParent() then
+			fields.parent_id = parentId or ""
+			ok, album, status, data = api:createAlbum(fields)
+		end
 		if not ok then
 			progress:done()
 			stopWithError("Smugbox: " .. tostring(album))
@@ -220,7 +388,21 @@ function PublishTask.processRenderedPhotos(functionContext, exportContext)
 		log:infof("created album %s (%s)", album.id, album.url)
 		exportSession:recordRemoteCollectionId(album.id)
 		exportSession:recordRemoteCollectionUrl(album.url)
+		PublishTask.clearPendingCreateKey(publishedCollection)
 		return album.id
+	end
+
+	-- The album may have been removed server-side (CLI, gc). Create a new
+	-- one and flag everything already published so the next Publish fills
+	-- it; this run only carries the renditions Lightroom chose to render.
+	local albumRecreated = false
+	local remarked = 0
+	local function recreateAlbum()
+		log:warnf("album %s gone on server, creating a new one", albumId)
+		albumRecreated = true
+		local newId = createAlbum()
+		remarked = PublishTask.markAllForRepublish(publishedCollection)
+		return newId
 	end
 
 	if not albumId then
@@ -228,15 +410,27 @@ function PublishTask.processRenderedPhotos(functionContext, exportContext)
 	else
 		-- Reconcile in case the collection was dragged into a different set
 		-- since the last publish; Lightroom fires no callback for that.
-		local ok, result = api:updateAlbum(albumId, { parent_id = parentId or "" })
-		if not ok then
+		local ok, result, status, data = api:updateAlbum(albumId, { parent_id = parentId or "" })
+		if isFolderGone(ok, status, data) and repairParent() then
+			ok, result, status, data = api:updateAlbum(albumId, { parent_id = parentId or "" })
+		end
+		if isGone(status, data, "album_not_found") then
+			-- Recover here too, so a run with nothing to render still
+			-- restores the album rather than silently doing nothing.
+			albumId = recreateAlbum()
+		elseif not ok then
 			log:warnf("update album set: %s", tostring(result))
 		end
 	end
 
 	local failures = {}
 	local uploaded = {} -- catalog uuid -> remote id, for the cover lookup
-	local albumRecreated = false
+	-- Filenames this run uploaded before the album turned out to be gone.
+	-- They are in the album that was deleted, not in the new one, and
+	-- Lightroom clears their edited flag at the end of a successful run --
+	-- which undoes markAllForRepublish for exactly these photos. The dialog
+	-- names them so they can be marked by hand.
+	local landedInOldAlbum = {}
 	for i, rendition in exportContext:renditions({ stopIfCanceled = true }) do
 		progress:setPortionComplete(i - 1, nPhotos)
 		local success, pathOrMessage = rendition:waitForRender()
@@ -259,16 +453,16 @@ function PublishTask.processRenderedPhotos(functionContext, exportContext)
 				ok, result, status, body = api:uploadPhoto(albumId, pathOrMessage, fields, nil)
 			end
 
-			-- The album itself may have been removed server-side (CLI, gc).
-			if not ok and status == 404 and body and body.error == "album_not_found" and not albumRecreated then
-				log:warnf("album %s gone on server, creating a new one", albumId)
-				albumRecreated = true
-				albumId = createAlbum()
+			if isGone(status, body, "album_not_found") and not albumRecreated then
+				albumId = recreateAlbum()
 				ok, result, status, body = api:uploadPhoto(albumId, pathOrMessage, fields, nil)
 			end
 
 			if ok and type(result) == "table" and result.id then
 				rendition:recordPublishedPhotoId(result.id)
+				if not albumRecreated then
+					table.insert(landedInOldAlbum, fields.filename)
+				end
 				uploaded[fields.lr_photo_uuid] = result.id
 				if result.url then
 					rendition:recordPublishedPhotoUrl(result.url)
@@ -287,22 +481,34 @@ function PublishTask.processRenderedPhotos(functionContext, exportContext)
 	progress:done()
 	PublishTask.pushCover(api, albumId, publishedCollection, collectionSettings, uploaded)
 
+	if albumRecreated then
+		local lines = {
+			string.format("The album for this collection no longer existed on the server, so a new one was created. %d previously published photo%s %s marked to re-publish; click Publish again to upload them.",
+				remarked, remarked == 1 and "" or "s", remarked == 1 and "was" or "were"),
+		}
+		if #landedInOldAlbum > 0 then
+			local n = #landedInOldAlbum
+			log:warnf("%d photo(s) uploaded into the deleted album: %s", n, table.concat(landedInOldAlbum, ", "))
+			table.insert(lines, "")
+			table.insert(lines, string.format(
+				"%d photo%s of this run had already been uploaded when the album turned out to be gone, so %s in the deleted album and not in the new one. Lightroom counts %s as published, so select %s in the collection and use Mark to Re-publish:",
+				n, n == 1 and "" or "s",
+				n == 1 and "it is" or "they are",
+				n == 1 and "it" or "them",
+				n == 1 and "it" or "them"))
+			table.insert(lines, table.concat(firstLines(landedInOldAlbum, 10), "\n"))
+		end
+		LrDialogs.message("Smugbox: the album was recreated on the server", table.concat(lines, "\n"), "info")
+	end
+
 	if #failures > 0 then
-		local shown = {}
-		for i = 1, math.min(#failures, 10) do
-			shown[i] = failures[i]
-		end
-		if #failures > 10 then
-			table.insert(shown, string.format("... and %d more", #failures - 10))
-		end
 		LrDialogs.message(
 			string.format("%d photo%s could not be published", #failures, #failures == 1 and "" or "s"),
-			table.concat(shown, "\n"),
+			table.concat(firstLines(failures, 10), "\n"),
 			"warning"
 		)
 	end
 end
-
 
 -- Per-collection settings dialog. Values persist with the collection in the
 -- catalog (in clear text, which is acceptable for album passwords).
@@ -466,7 +672,17 @@ function PublishTask.updateCollectionSettings(publishSettings, info)
 	end
 	local fields = PublishTask.albumFields(info.name, info.collectionSettings, parentId)
 	fields.cover_photo_id = PublishTask.resolveCoverId(info.publishedCollection, (info.collectionSettings or {}).coverPhotoUuid)
-	local ok, result = api:updateAlbum(remoteId, fields)
+	local ok, result, status, data = api:updateAlbum(remoteId, fields)
+	if isFolderGone(ok, status, data) then
+		-- A set's folder was deleted server-side; recreate it and retry once.
+		local repairOk, repaired = PublishTask.resolveParent(api, info.publishedCollection, true)
+		if repairOk then
+			fields.parent_id = repaired or ""
+			ok, result, status, data = api:updateAlbum(remoteId, fields)
+		else
+			result = repaired
+		end
+	end
 	if not ok then
 		LrDialogs.message("Smugbox: album settings not saved on server", tostring(result), "warning")
 	end
@@ -499,13 +715,13 @@ function PublishTask.deletePublishedCollection(publishSettings, info)
 		return
 	end
 	local api = SmugboxAPI.new(publishSettings.serverUrl, publishSettings.apiKey)
-	local ok, result, status
+	local ok, result, status, data
 	if isCollectionSet(info) then
-		ok, result, status = api:deleteFolder(info.remoteId)
+		ok, result, status, data = api:deleteFolder(info.remoteId)
 	else
-		ok, result, status = api:deleteAlbum(info.remoteId)
+		ok, result, status, data = api:deleteAlbum(info.remoteId)
 	end
-	if not ok and status ~= 404 then
+	if not ok and not isGone(status, data, "album_not_found", "folder_not_found") then
 		LrDialogs.message("Smugbox: not deleted on server", tostring(result), "warning")
 	end
 end
@@ -523,8 +739,8 @@ function PublishTask.deletePhotosFromPublishedCollection(publishSettings, arrayO
 	end
 	local failed = 0
 	for _, id in ipairs(arrayOfPhotoIds) do
-		local ok, result, status = api:deletePhoto(albumId, id)
-		if ok or status == 404 then
+		local ok, result, status, data = api:deletePhoto(albumId, id)
+		if ok or isGone(status, data, "photo_not_found", "album_not_found") then
 			deletedCallback(id)
 		else
 			failed = failed + 1

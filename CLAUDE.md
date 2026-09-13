@@ -9,6 +9,8 @@ are fixed; do not re-open them without asking. Code, comments and docs are in En
   - `cmd/smugbox` — `serve` and `admin` subcommands (API keys, albums, passwords, gc).
   - `internal/api` — all HTTP under `/api/`; `/api/publish/*` is for the Lightroom
     plugin (Bearer API key), `/api/albums/*` for visitors (cookie for locked albums).
+    `Server.Run` is the background variant worker; `photos.variants_ready` is its
+    queue, and visitors never see a photo until it is set.
   - `internal/db` — SQLite via `modernc.org/sqlite`, goose migrations embedded from
     `internal/db/migrations`. Single connection (`SetMaxOpenConns(1)`).
   - `internal/storage` — `<DATA_DIR>/photos/<album>/<photo>/<variant>.jpg`; writes go to

@@ -45,9 +45,21 @@ type env struct {
 	store *storage.Store
 	key   string
 	now   time.Time
+
+	stopWorker func() // nil while the variant worker is not running
 }
 
+// newEnv builds a server with its variant worker running, so uploads are
+// fully visible once uploadPhoto returns. newEnvNoWorker leaves photos in
+// the pending state for tests that look at that window.
 func newEnv(t *testing.T) *env {
+	t.Helper()
+	e := newEnvNoWorker(t)
+	e.startWorker()
+	return e
+}
+
+func newEnvNoWorker(t *testing.T) *env {
 	t.Helper()
 	dir := t.TempDir()
 	database, err := db.Open(context.Background(), filepath.Join(dir, "smugbox.db"))
@@ -74,6 +86,45 @@ func newEnv(t *testing.T) *env {
 	}
 	e.srv = srv
 	return e
+}
+
+// startWorker runs the variant worker until the test ends or stopWorker.
+func (e *env) startWorker() {
+	e.t.Helper()
+	if e.stopWorker != nil {
+		e.t.Fatal("worker already running")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		e.srv.Run(ctx)
+		close(done)
+	}()
+	e.stopWorker = func() {
+		cancel()
+		<-done
+		e.stopWorker = nil
+	}
+	e.t.Cleanup(func() {
+		if e.stopWorker != nil {
+			e.stopWorker()
+		}
+	})
+}
+
+// waitVariants blocks until the worker has nothing left to do.
+func (e *env) waitVariants() {
+	e.t.Helper()
+	if e.stopWorker == nil {
+		e.t.Fatal("waitVariants without a running worker")
+	}
+	deadline := time.Now().Add(30 * time.Second)
+	for !e.srv.variants.idle() {
+		if time.Now().After(deadline) {
+			e.t.Fatal("variant worker did not go idle")
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
 }
 
 func (e *env) createKey(label string) string {
@@ -168,6 +219,9 @@ func (e *env) uploadPhoto(albumID, lrUUID, filename string, file []byte, extra m
 	}
 	var out struct{ ID, URL string }
 	decode(e.t, rec, &out)
+	if e.stopWorker != nil {
+		e.waitVariants()
+	}
 	return out.ID, rec.Code
 }
 
@@ -387,6 +441,7 @@ func TestUploadIdempotentAndReplace(t *testing.T) {
 	if !bytes.Equal(stored, jpg2) {
 		t.Fatal("replaced file not written")
 	}
+	e.waitVariants() // the worker stages files too
 	if entries, _ := os.ReadDir(filepath.Join(e.store.Root(), "incoming")); len(entries) != 0 {
 		t.Fatalf("staging leftovers: %d", len(entries))
 	}
@@ -505,5 +560,53 @@ func TestOrderListDelete(t *testing.T) {
 	}
 	if rec := e.json(http.MethodDelete, "/api/publish/albums/"+a.ID, nil); rec.Code != 404 {
 		t.Fatalf("delete album twice: %d", rec.Code)
+	}
+}
+
+func TestCreateAlbumIdempotencyKey(t *testing.T) {
+	e := newEnv(t)
+	body := map[string]any{"name": "Iceland", "password": "pw", "idempotency_key": "k-album-1"}
+	first := e.json(http.MethodPost, "/api/publish/albums", body)
+	second := e.json(http.MethodPost, "/api/publish/albums", body)
+	if first.Code != http.StatusCreated || second.Code != http.StatusCreated {
+		t.Fatalf("codes: %d %d %s", first.Code, second.Code, second.Body.String())
+	}
+	var a, b albumOutput
+	decode(t, first, &a)
+	decode(t, second, &b)
+	if a.ID != b.ID || a.Slug != "iceland" || b.Slug != "iceland" {
+		t.Fatalf("replay should answer with the same album: %+v vs %+v", a, b)
+	}
+	albums, err := e.db.ListAlbums(context.Background())
+	if err != nil || len(albums) != 1 {
+		t.Fatalf("albums = %d, err %v", len(albums), err)
+	}
+	// A different key with the same name is a genuinely new album.
+	body["idempotency_key"] = "k-album-2"
+	var c albumOutput
+	decode(t, e.json(http.MethodPost, "/api/publish/albums", body), &c)
+	if c.ID == a.ID || c.Slug == a.Slug {
+		t.Fatalf("different key should create a new album: %+v", c)
+	}
+	// Without a key nothing is deduplicated.
+	var d, f albumOutput
+	decode(t, e.json(http.MethodPost, "/api/publish/albums", map[string]any{"name": "Plain"}), &d)
+	decode(t, e.json(http.MethodPost, "/api/publish/albums", map[string]any{"name": "Plain"}), &f)
+	if d.ID == f.ID {
+		t.Fatal("keyless creates must not be deduplicated")
+	}
+	// Bad keys are rejected.
+	for _, k := range []string{strings.Repeat("x", 129), "has space", "tab\tkey"} {
+		if rec := e.json(http.MethodPost, "/api/publish/albums", map[string]any{"name": "Bad", "idempotency_key": k}); rec.Code != http.StatusBadRequest {
+			t.Fatalf("key %q: %d", k, rec.Code)
+		}
+	}
+	// The key is ignored on update.
+	if rec := e.json(http.MethodPut, "/api/publish/albums/"+a.ID, map[string]any{"name": "Renamed", "idempotency_key": "k-album-2"}); rec.Code != http.StatusOK {
+		t.Fatalf("update with key: %d %s", rec.Code, rec.Body.String())
+	}
+	got, err := e.db.GetAlbum(context.Background(), a.ID)
+	if err != nil || got.IdempotencyKey != "k-album-1" {
+		t.Fatalf("key after update = %q, err %v", got.IdempotencyKey, err)
 	}
 }

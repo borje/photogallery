@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -10,7 +11,6 @@ import (
 	"mime/multipart"
 	"net/http"
 	"path"
-	"slices"
 	"strings"
 	"unicode"
 
@@ -77,8 +77,9 @@ type headCapture struct {
 }
 
 func (h headCapture) Write(p []byte) (int, error) {
-	for h.up.headLen < len(h.up.head) && h.up.headLen < len(p) {
-		h.up.head[h.up.headLen] = p[h.up.headLen]
+	// headLen counts bytes across calls; i indexes this call's chunk.
+	for i := 0; h.up.headLen < len(h.up.head) && i < len(p); i++ {
+		h.up.head[h.up.headLen] = p[i]
 		h.up.headLen++
 	}
 	return len(p), nil
@@ -216,8 +217,21 @@ func (s *Server) ingest(w http.ResponseWriter, r *http.Request, a *db.Album, exi
 			s.internalError(w, r, err)
 			return
 		}
-		info, err := image.Probe(up.staged.Path())
+		// The thumb probeUpload renders is thrown away; the worker renders
+		// the copy that is kept, which leaves the original as the only file
+		// this request commits.
+		thumb, err := s.store.NewStaged()
 		if err != nil {
+			s.internalError(w, r, err)
+			return
+		}
+		defer thumb.Abort()
+		info, err := s.probeUpload(r.Context(), up.staged.Path(), thumb.Path())
+		if err != nil {
+			if r.Context().Err() != nil {
+				return // the client gave up; there is nobody to answer
+			}
+			s.log.Warn("probe upload", "album", a.ID, "photo", photo.ID, "err", err)
 			writeError(w, http.StatusUnprocessableEntity, "invalid_image", err.Error())
 			return
 		}
@@ -230,32 +244,10 @@ func (s *Server) ingest(w http.ResponseWriter, r *http.Request, a *db.Album, exi
 				photo.Filename = fn
 			}
 		}
-
-		// Generate display variants into staging, then move everything into
-		// place so a photo is never visible with mismatched files.
-		derived := map[storage.Variant]*storage.Staged{}
-		defer func() {
-			for _, st := range derived {
-				st.Abort()
-			}
-		}()
-		s.deriveSem <- struct{}{}
-		produced, err := image.Derive(up.staged.Path(), info, func(v storage.Variant) (string, error) {
-			st, err := s.store.NewStaged()
-			if err != nil {
-				return "", err
-			}
-			derived[v] = st
-			return st.Path(), nil
-		})
-		<-s.deriveSem
-		if err != nil {
-			s.log.Warn("derive variants", "album", a.ID, "photo", photo.ID, "err", err)
-			writeError(w, http.StatusUnprocessableEntity, "invalid_image", "could not process image")
-			return
-		}
-		for v, st := range derived {
-			if err := s.store.Commit(st, a.ID, photo.ID, v); err != nil {
+		if !isNew {
+			// Hide the photo while its stored variants describe the old
+			// original; the worker shows it again once they are regenerated.
+			if err := s.db.MarkVariantsPending(r.Context(), a.ID, photo.ID); err != nil {
 				s.internalError(w, r, err)
 				return
 			}
@@ -263,13 +255,6 @@ func (s *Server) ingest(w http.ResponseWriter, r *http.Request, a *db.Album, exi
 		if err := s.store.Commit(up.staged, a.ID, photo.ID, storage.Original); err != nil {
 			s.internalError(w, r, err)
 			return
-		}
-		// A replacement may be smaller than the previous file: drop variants
-		// that were not regenerated (large falls back to original).
-		for _, sz := range image.Sizes {
-			if !slices.Contains(produced, sz.Variant) {
-				_ = s.store.Remove(a.ID, photo.ID, sz.Variant)
-			}
 		}
 	}
 	if photo.Filename == "" {
@@ -289,11 +274,42 @@ func (s *Server) ingest(w http.ResponseWriter, r *http.Request, a *db.Album, exi
 		s.internalError(w, r, err)
 		return
 	}
+	if up.staged != nil {
+		s.variants.kick()
+	}
 	status := http.StatusOK
 	if isNew {
 		status = http.StatusCreated
 	}
 	writeJSON(w, status, map[string]string{"id": photo.ID, "url": s.photoURL(a.Slug, photo.ID)})
+}
+
+// probeUpload reads the dimensions of the JPEG at src and renders a thumb
+// of it to dst, which decodes the whole file so that an unreadable JPEG is
+// rejected in the request instead of by the worker after the client was
+// told 201. Neither file is committed.
+//
+// This is the only libvips work left in an upload request, and it holds
+// deriveSem for its duration: otherwise every concurrent upload runs a
+// pipeline of its own, which the memory of the machine this runs on does
+// not allow. The token is released by defer, so a panic cannot leak it, and
+// a client that gives up while queueing does not keep waiting.
+func (s *Server) probeUpload(ctx context.Context, src, dst string) (image.Info, error) {
+	select {
+	case s.deriveSem <- struct{}{}:
+	case <-ctx.Done():
+		return image.Info{}, ctx.Err()
+	}
+	defer func() { <-s.deriveSem }()
+
+	info, err := image.Probe(src)
+	if err != nil {
+		return info, err
+	}
+	_, err = image.Derive(src, info, []storage.Variant{image.Validate}, func(storage.Variant) (string, error) {
+		return dst, nil
+	})
+	return info, err
 }
 
 // applyMetadata copies the optional text fields onto photo, validating them.

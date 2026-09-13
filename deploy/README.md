@@ -13,6 +13,8 @@ docker compose exec smugbox smugbox admin create-api-key --label "Lightroom"
 Paste the printed key into the Lightroom plug-in (Publishing Manager >
 Smugbox). Other admin commands: `list-albums`, `list-api-keys`,
 `revoke-api-key <id>`, `set-password <slug> [--clear]`, `gc [--dry-run]`.
+`gc` can run while the container is serving; it only touches files older
+than an hour that no database row references.
 
 ## Reverse proxy
 
@@ -25,7 +27,9 @@ Two things matter for this service:
   generous value, and no request body limit below `MAX_UPLOAD_MB`).
 - **Client IPs.** Set `TRUSTED_PROXY_CIDR` to the proxy's network so the
   unlock rate limiter uses the visitor's IP from `X-Forwarded-For` rather than
-  the proxy's.
+  the proxy's. The compose file defaults it to the RFC 1918 ranges; narrow it
+  to your proxy's network. Without it every visitor shares the proxy's IP and
+  they share one unlock bucket per album (5 attempts per minute).
 
 The container sets `X-Content-Type-Options` and `Content-Security-Policy`
 itself; add HSTS at the proxy.

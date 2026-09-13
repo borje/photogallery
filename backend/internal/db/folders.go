@@ -8,12 +8,13 @@ import (
 
 // Folder is a node in the album tree. It never holds photos directly.
 type Folder struct {
-	ID        string
-	ParentID  string // "" = root
-	Slug      string
-	Name      string
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID             string
+	ParentID       string // "" = root
+	Slug           string
+	Name           string
+	IdempotencyKey string // client-chosen key of the creating request, "" = none
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 // FolderSummary is a Folder with the aggregates used by the folder listing.
@@ -23,7 +24,7 @@ type FolderSummary struct {
 	NewestTakenAt  string // latest taken_at across the subtree, used for ordering
 }
 
-const folderCols = `f.id, COALESCE(f.parent_id, ''), f.slug, f.name, f.created_at, f.updated_at`
+const folderCols = `f.id, COALESCE(f.parent_id, ''), f.slug, f.name, COALESCE(f.idempotency_key, ''), f.created_at, f.updated_at`
 
 // nullIfEmpty maps "" to a SQL NULL parameter, used for the nullable
 // parent_id / folder_id foreign keys where "" means root/no-folder.
@@ -37,7 +38,7 @@ func nullIfEmpty(s string) any {
 func scanFolder(r rowScanner) (*Folder, error) {
 	var f Folder
 	var created, updated string
-	if err := r.Scan(&f.ID, &f.ParentID, &f.Slug, &f.Name, &created, &updated); err != nil {
+	if err := r.Scan(&f.ID, &f.ParentID, &f.Slug, &f.Name, &f.IdempotencyKey, &created, &updated); err != nil {
 		return nil, err
 	}
 	f.CreatedAt = parseTime(created)
@@ -45,11 +46,20 @@ func scanFolder(r rowScanner) (*Folder, error) {
 	return &f, nil
 }
 
-// CreateFolder inserts a new folder. Returns ErrSlugTaken on a slug collision.
+// CreateFolder inserts a new folder. Returns ErrIdempotencyKeyTaken when a
+// folder with the same IdempotencyKey exists, otherwise ErrSlugTaken on a
+// slug collision.
 func (d *DB) CreateFolder(ctx context.Context, f *Folder) error {
-	_, err := d.ExecContext(ctx, `INSERT INTO folders (id, parent_id, slug, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
-		f.ID, nullIfEmpty(f.ParentID), f.Slug, f.Name, formatTime(f.CreatedAt), formatTime(f.UpdatedAt))
+	_, err := d.ExecContext(ctx, `INSERT INTO folders (id, parent_id, slug, name, idempotency_key, created_at, updated_at) VALUES (?, ?, ?, ?, NULLIF(?, ''), ?, ?)`,
+		f.ID, nullIfEmpty(f.ParentID), f.Slug, f.Name, f.IdempotencyKey, formatTime(f.CreatedAt), formatTime(f.UpdatedAt))
 	if isUniqueViolation(err) {
+		taken, kerr := d.hasIdempotencyKey(ctx, "folders", f.IdempotencyKey)
+		if kerr != nil {
+			return kerr
+		}
+		if taken {
+			return ErrIdempotencyKeyTaken
+		}
 		return ErrSlugTaken
 	}
 	if err != nil {
@@ -62,6 +72,13 @@ func (d *DB) CreateFolder(ctx context.Context, f *Folder) error {
 func (d *DB) GetFolder(ctx context.Context, id string) (*Folder, error) {
 	f, err := scanFolder(d.QueryRowContext(ctx, `SELECT `+folderCols+` FROM folders f WHERE f.id = ?`, id))
 	return f, wrapNotFound(err, "get folder")
+}
+
+// GetFolderByIdempotencyKey returns the folder created with the given
+// client key or ErrNotFound.
+func (d *DB) GetFolderByIdempotencyKey(ctx context.Context, key string) (*Folder, error) {
+	f, err := scanFolder(d.QueryRowContext(ctx, `SELECT `+folderCols+` FROM folders f WHERE f.idempotency_key = ?`, key))
+	return f, wrapNotFound(err, "get folder by idempotency key")
 }
 
 // GetFolderBySlug returns the folder with the given slug or ErrNotFound.
@@ -115,13 +132,13 @@ func (d *DB) FolderChain(ctx context.Context, folderID string) ([]*Folder, error
 		return nil, nil
 	}
 	rows, err := d.QueryContext(ctx, `
-		WITH RECURSIVE up(id, parent_id, slug, name, created_at, updated_at, depth) AS (
-			SELECT id, parent_id, slug, name, created_at, updated_at, 0 FROM folders WHERE id = ?
+		WITH RECURSIVE up(id, parent_id, slug, name, idempotency_key, created_at, updated_at, depth) AS (
+			SELECT id, parent_id, slug, name, idempotency_key, created_at, updated_at, 0 FROM folders WHERE id = ?
 		UNION ALL
-			SELECT f.id, f.parent_id, f.slug, f.name, f.created_at, f.updated_at, up.depth + 1
+			SELECT f.id, f.parent_id, f.slug, f.name, f.idempotency_key, f.created_at, f.updated_at, up.depth + 1
 			FROM folders f JOIN up ON f.id = up.parent_id
 		)
-		SELECT id, COALESCE(parent_id, ''), slug, name, created_at, updated_at FROM up ORDER BY depth DESC`, folderID)
+		SELECT id, COALESCE(parent_id, ''), slug, name, COALESCE(idempotency_key, ''), created_at, updated_at FROM up ORDER BY depth DESC`, folderID)
 	if err != nil {
 		return nil, fmt.Errorf("folder chain: %w", err)
 	}
@@ -176,7 +193,9 @@ func scanFolderSummary(r rowScanner) (*FolderSummary, error) {
 // ListChildFolders returns the immediate child folders of parentID (""
 // meaning root) that have at least one listed album somewhere in their
 // subtree, ordered by name. Each summary's cover is the newest listed
-// album anywhere beneath it.
+// album anywhere beneath it. Like summarySelect, this aggregates over ready
+// photos only: a photo whose variants are still being generated must not
+// order the folder or hand it a cover album that would answer no_cover.
 func (d *DB) ListChildFolders(ctx context.Context, parentID string) ([]*FolderSummary, error) {
 	rows, err := d.QueryContext(ctx, `
 		WITH RECURSIVE sub(root_id, folder_id) AS (
@@ -186,12 +205,14 @@ func (d *DB) ListChildFolders(ctx context.Context, parentID string) ([]*FolderSu
 		), av AS (
 			SELECT s.root_id, a.slug, a.created_at,
 			       COALESCE((SELECT MAX(p.taken_at) FROM photos p
-			                  WHERE p.album_id = a.id AND p.taken_at IS NOT NULL AND p.taken_at <> ''), '') AS taken_to
+			                  WHERE p.album_id = a.id AND p.variants_ready = 1 AND p.taken_at IS NOT NULL AND p.taken_at <> ''), '') AS taken_to,
+			       EXISTS (SELECT 1 FROM photos p
+			                WHERE p.album_id = a.id AND p.variants_ready = 1) AS has_cover
 			  FROM sub s JOIN albums a ON a.folder_id = s.folder_id
 			 WHERE a.is_listed = 1
 		)
 		SELECT f.id, COALESCE(f.parent_id, ''), f.slug, f.name, f.created_at, f.updated_at,
-		       COALESCE((SELECT slug FROM av WHERE av.root_id = f.id
+		       COALESCE((SELECT slug FROM av WHERE av.root_id = f.id AND av.has_cover
 		                  ORDER BY taken_to DESC, created_at DESC LIMIT 1), ''),
 		       COALESCE((SELECT MAX(taken_to) FROM av WHERE av.root_id = f.id), '')
 		  FROM folders f

@@ -16,6 +16,7 @@ const (
 	albumA = "11111111-1111-1111-1111-111111111111"
 	photoA = "aaaaaaaa-0000-0000-0000-000000000001"
 	photoB = "aaaaaaaa-0000-0000-0000-000000000002"
+	photoC = "aaaaaaaa-0000-0000-0000-000000000003"
 )
 
 func newStore(t *testing.T) *Store {
@@ -116,22 +117,39 @@ func TestRemoveAndOrphans(t *testing.T) {
 	emptyAlbum := filepath.Join(s.Root(), "photos", "22222222-2222-2222-2222-222222222222")
 	os.MkdirAll(emptyAlbum, 0o755)
 
-	orphans, err := s.Orphans(func(a, p string) bool { return a == albumA && p == photoA })
+	listing, err := s.Walk()
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]bool{
+	// A photo committed after the walk is not a candidate at all.
+	if _, err := s.WriteFile(albumA, photoC, Original, bytes.NewReader([]byte{1})); err != nil {
+		t.Fatal(err)
+	}
+	known := func(a, p string) bool { return a == albumA && p == photoA }
+	now := time.Now()
+	check := func(orphans []string, want map[string]bool) {
+		t.Helper()
+		if len(orphans) != len(want) {
+			t.Fatalf("orphans = %v, want %v", orphans, want)
+		}
+		for _, o := range orphans {
+			if !want[o] {
+				t.Errorf("unexpected orphan %s", o)
+			}
+		}
+	}
+	// The empty album dir and photoB's directory were just created: within
+	// the grace period both are kept, because an upload commits its files
+	// before it inserts the row that would make photoB known.
+	check(listing.Orphans(known, now, time.Hour), map[string]bool{junk: true})
+	// Past the grace period they go too.
+	check(listing.Orphans(known, now.Add(2*time.Hour), time.Hour), map[string]bool{
 		filepath.Join(s.Root(), "photos", albumA, photoB): true,
 		junk:       true,
 		emptyAlbum: true,
-	}
-	if len(orphans) != len(want) {
-		t.Fatalf("orphans = %v", orphans)
-	}
-	for _, o := range orphans {
-		if !want[o] {
-			t.Errorf("unexpected orphan %s", o)
-		}
+	})
+	if err := s.RemovePhoto(albumA, photoC); err != nil {
+		t.Fatal(err)
 	}
 
 	if err := s.RemovePhoto(albumA, photoB); err != nil {

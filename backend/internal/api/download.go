@@ -44,7 +44,7 @@ func (s *Server) downloadAlbum(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "too_many_downloads", "try again in a moment")
 		return
 	}
-	photos, err := s.db.ListPhotos(r.Context(), album.ID)
+	photos, err := s.db.ListReadyPhotos(r.Context(), album.ID)
 	if err != nil {
 		s.internalError(w, r, err)
 		return

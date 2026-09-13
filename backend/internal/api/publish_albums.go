@@ -16,6 +16,8 @@ const (
 	maxDescriptionLen = 5000
 	maxPasswordLen    = 72 // bcrypt input limit
 	slugRetries       = 10
+
+	maxIdempotencyKeyLen = 128
 )
 
 type albumInput struct {
@@ -25,6 +27,10 @@ type albumInput struct {
 	IsListed     *bool   `json:"is_listed"`
 	CoverPhotoID *string `json:"cover_photo_id"`
 	ParentID     *string `json:"parent_id"` // "" or omitted = root
+	// IdempotencyKey lets a client retry a create safely: a second POST with
+	// the same key answers with the album the first one made. Ignored on
+	// update.
+	IdempotencyKey *string `json:"idempotency_key"`
 }
 
 type albumOutput struct {
@@ -59,6 +65,26 @@ func (s *Server) albumFromPath(w http.ResponseWriter, r *http.Request) (*db.Albu
 	return a, true
 }
 
+// validIdempotencyKey returns the trimmed key ("" when absent) or writes a
+// 400 and returns false.
+func validIdempotencyKey(w http.ResponseWriter, key *string) (string, bool) {
+	if key == nil {
+		return "", true
+	}
+	k := strings.TrimSpace(*key)
+	if len(k) > maxIdempotencyKeyLen {
+		writeError(w, http.StatusBadRequest, "invalid_idempotency_key", "idempotency_key must be at most 128 characters")
+		return "", false
+	}
+	for _, c := range k {
+		if c < 0x21 || c > 0x7e {
+			writeError(w, http.StatusBadRequest, "invalid_idempotency_key", "idempotency_key must be printable ASCII without spaces")
+			return "", false
+		}
+	}
+	return k, true
+}
+
 func validName(w http.ResponseWriter, name string) (string, bool) {
 	name = strings.TrimSpace(name)
 	if name == "" || len(name) > maxNameLen {
@@ -81,8 +107,21 @@ func (s *Server) createAlbum(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	key, ok := validIdempotencyKey(w, in.IdempotencyKey)
+	if !ok {
+		return
+	}
+	if key != "" {
+		if existing, err := s.db.GetAlbumByIdempotencyKey(r.Context(), key); err == nil {
+			writeJSON(w, http.StatusCreated, s.albumOutput(existing))
+			return
+		} else if !errors.Is(err, db.ErrNotFound) {
+			s.internalError(w, r, err)
+			return
+		}
+	}
 	now := s.now()
-	a := &db.Album{ID: uuid.NewString(), Name: name, IsListed: true, CreatedAt: now, UpdatedAt: now}
+	a := &db.Album{ID: uuid.NewString(), Name: name, IsListed: true, IdempotencyKey: key, CreatedAt: now, UpdatedAt: now}
 	if in.Description != nil {
 		if len(*in.Description) > maxDescriptionLen {
 			writeError(w, http.StatusBadRequest, "invalid_description", "description too long")
@@ -117,6 +156,10 @@ func (s *Server) createAlbum(w http.ResponseWriter, r *http.Request) {
 	err := withUniqueSlug(s.rand, name, func(slug string) { a.Slug = slug }, func() error {
 		return s.db.CreateAlbum(r.Context(), a)
 	})
+	if errors.Is(err, db.ErrIdempotencyKeyTaken) {
+		// Lost a race with a retry of the same request.
+		a, err = s.db.GetAlbumByIdempotencyKey(r.Context(), key)
+	}
 	if err != nil {
 		s.internalError(w, r, err)
 		return

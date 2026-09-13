@@ -227,29 +227,49 @@ func deleteAlbum(ctx context.Context, database *db.DB, store *storage.Store, arg
 	return nil
 }
 
+// gcGrace is how old an unreferenced photo directory, an empty album
+// directory or a staging file must be before gc removes it. All three are
+// created before the upload that owns them has a database row, so anything
+// younger may belong to an upload in flight.
+const gcGrace = time.Hour
+
+// gcTargets lists what gc would remove. The disk is listed before the
+// database is read so that a photo committed by a running server between
+// the two is in the database snapshot and kept; anything newer than
+// gcGrace is kept regardless. See storage.Listing.
+func gcTargets(ctx context.Context, database *db.DB, store *storage.Store, now time.Time) ([]string, error) {
+	listing, err := store.Walk()
+	if err != nil {
+		return nil, err
+	}
+	refs, err := database.ListPhotoRefs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	known := make(map[string]bool, len(refs))
+	for _, r := range refs {
+		known[r.AlbumID+"/"+r.ID] = true
+	}
+	targets := listing.Orphans(func(albumID, photoID string) bool { return known[albumID+"/"+photoID] }, now, gcGrace)
+	stale, err := store.StaleIncoming(now, gcGrace)
+	if err != nil {
+		return nil, err
+	}
+	return append(targets, stale...), nil
+}
+
+// gc removes files the database does not reference. Safe to run while the
+// server is up.
 func gc(ctx context.Context, database *db.DB, store *storage.Store, args []string) error {
 	fs := flag.NewFlagSet("gc", flag.ContinueOnError)
 	dryRun := fs.Bool("dry-run", false, "only print what would be removed")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	refs, err := database.ListPhotoRefs(ctx)
+	targets, err := gcTargets(ctx, database, store, time.Now())
 	if err != nil {
 		return err
 	}
-	known := make(map[string]bool, len(refs))
-	for _, r := range refs {
-		known[r.AlbumID+"/"+r.ID] = true
-	}
-	orphans, err := store.Orphans(func(albumID, photoID string) bool { return known[albumID+"/"+photoID] })
-	if err != nil {
-		return err
-	}
-	stale, err := store.StaleIncoming(time.Now(), time.Hour)
-	if err != nil {
-		return err
-	}
-	targets := append(orphans, stale...)
 	if len(targets) == 0 {
 		fmt.Println("nothing to clean")
 		return nil

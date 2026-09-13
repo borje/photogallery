@@ -45,6 +45,20 @@ Check the log after every step below. Server state can be inspected with
       /api/publish/albums/{id}/photos/{photo}`), then republish it from
       Lightroom. Expect: plug-in falls back to a fresh upload and the photo
       reappears with a new id.
+- [ ] Delete the whole album on the server with curl (`DELETE
+      /api/publish/albums/{id}`), change nothing in Lightroom and click
+      Publish. Expect: a new album is created, an info dialog says all
+      previously published photos were marked to re-publish, and they sit in
+      "Modified Photos to Re-publish". Publish again: every photo is back on
+      the server in the new album.
+- [ ] Same, but edit one photo before publishing. Expect: that photo is
+      uploaded in the first run, the rest after the second.
+- [ ] Delete the album on the server *while* a publish of several photos is
+      running (curl the delete once the first photo has appeared). Expect: a
+      new album is created mid-run, the remaining photos go into it, and the
+      info dialog names the photos that had already been uploaded into the
+      deleted album and tells you to select them and use "Mark to
+      Re-publish". Do that and publish again: they land in the new album.
 
 ## Remove photos
 
@@ -98,6 +112,14 @@ Check the log after every step below. Server state can be inspected with
 - [ ] Delete the published collection in Lightroom. Expect: album gone from
       the server and its directory removed under `DATA_DIR/photos`.
 - [ ] `smugbox admin gc --dry-run` reports nothing to clean.
+- [ ] Delete the album row with curl first (`DELETE /api/publish/albums/{id}`),
+      then delete the collection in Lightroom. Expect: no dialog; the
+      collection disappears.
+- [ ] Stop the backend container (proxy still answering) and delete a
+      published collection, or remove photos from one and publish. Expect:
+      after the retries, "not deleted on server"; the collection or photos
+      are still listed in Lightroom and can be deleted again once the backend
+      is back.
 
 ## Album sets (nested folders)
 
@@ -123,6 +145,14 @@ Check the log after every step below. Server state can be inspected with
       photo into a *different* collection inside the same still-existing
       set. Expect: only the album is recreated; the set's folder id on the
       server is reused, not recreated.
+- [ ] Delete a set's folder row with curl (`DELETE /api/publish/folders/{id}`,
+      which also removes its albums), then create and publish a *new*
+      collection inside that set. Expect: the set is recreated on the server
+      (new id, same name), the publish succeeds, and the set's other
+      collections republish into the new folder on their next publish.
+- [ ] With the folder row deleted as above, open an existing collection's
+      settings in that set and save. Expect: no "could not resolve album set"
+      dialog; the set is recreated and the settings are saved.
 
 ## Error handling
 
@@ -130,3 +160,15 @@ Check the log after every step below. Server state can be inspected with
       photos stay in the re-publish queue, nothing crashes.
 - [ ] Revoke the API key (`smugbox admin revoke-api-key`) and publish.
       Expect: "API key rejected" message; Test connection fails.
+- [ ] Create a new collection and publish it while the backend is stopped;
+      start the backend during the retries. Expect: the publish completes and
+      `smugbox admin list-albums` shows exactly one album for it, also when
+      the first create reached the backend but its response did not reach
+      Lightroom (for example killing the container right after the row
+      appears).
+- [ ] Same, but let the retries run out (keep the backend down for five
+      minutes) after the create has reached the backend, then start the
+      backend and click Publish again. Expect: still exactly one album --
+      the create key is kept in the catalog and presented again. Repeat with
+      Lightroom restarted in between, and with a new collection inside a new
+      album set (the set must not be duplicated either).

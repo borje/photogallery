@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -234,5 +235,48 @@ func TestUnlockRateLimitAndTrustedProxy(t *testing.T) {
 	}
 	if ip := e.srv.clientIP(httptest.NewRequest(http.MethodGet, "/", nil)); ip != "192.0.2.1" {
 		t.Fatalf("clientIP without header: %q", ip)
+	}
+}
+
+func TestUnlockLimitIsPerSlug(t *testing.T) {
+	e := newEnv(t)
+	post := func(slug string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/api/albums/"+slug+"/unlock", strings.NewReader(`{"password":"nope"}`))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		e.srv.ServeHTTP(rec, req)
+		return rec
+	}
+	// Each album has its own bucket, so traffic against one slug can never
+	// rate-limit another: without that, one client behind the same proxy
+	// address as every visitor would lock the whole site out.
+	for i := 0; i < 50; i++ {
+		if rec := post(fmt.Sprintf("guess-%d", i)); rec.Code != 401 {
+			t.Fatalf("slug %d: %d %s", i, rec.Code, rec.Body.String())
+		}
+	}
+	if n := e.srv.limiter.Len(); n != 50 {
+		t.Fatalf("per-slug buckets = %d, want 50", n)
+	}
+	// One slug still runs out after its own burst.
+	for i := 0; i < unlockBurst; i++ {
+		post("guess-0")
+	}
+	if rec := post("guess-0"); rec.Code != 429 {
+		t.Fatalf("repeat attempts on one slug: %d", rec.Code)
+	}
+	if rec := post("guess-1"); rec.Code != 401 {
+		t.Fatalf("another slug must be unaffected: %d", rec.Code)
+	}
+
+	// Malformed slugs are refused before the limiter or bcrypt runs.
+	e.now = e.now.Add(time.Hour)
+	for _, slug := range []string{"..%2Fx", "UPPER", strings.Repeat("a", 200), "trailing-"} {
+		if rec := post(slug); rec.Code != 401 {
+			t.Fatalf("slug %q: %d", slug, rec.Code)
+		}
+	}
+	if n := e.srv.limiter.Len(); n != 50 {
+		t.Fatalf("malformed slugs created buckets: %d", n)
 	}
 }

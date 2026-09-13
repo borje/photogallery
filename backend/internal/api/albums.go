@@ -142,7 +142,7 @@ func (s *Server) getAlbum(w http.ResponseWriter, r *http.Request) {
 		passwordRequired(w, sum, crumbs)
 		return
 	}
-	photos, err := s.db.ListPhotos(r.Context(), sum.ID)
+	photos, err := s.db.ListReadyPhotos(r.Context(), sum.ID)
 	if err != nil {
 		s.internalError(w, r, err)
 		return

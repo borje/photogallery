@@ -67,6 +67,12 @@ smugbox admin set-password <slug> [--clear]
 smugbox admin gc [--dry-run]           # remove orphaned files
 ```
 
+`gc` removes photo directories without a database row, stray entries under
+`photos/`, and empty album directories and `incoming/` files older than an
+hour. It is safe to run while the server is up. Note that every `admin`
+command opens the database and applies pending migrations, so run the
+upgraded binary's `admin` only when you are ready to upgrade `serve` too.
+
 ## Development
 
 Requirements: Go 1.26, `libvips-dev` and `pkg-config`, Node 22.
@@ -121,3 +127,11 @@ cd tools/loadtest
 - `GET /api/healthz`.
 
 Errors are JSON: `{"error": "snake_case_code", "message": "optional detail"}`.
+
+An upload is acknowledged as soon as the original is on disk; the display
+variants are rendered by a background worker in the `serve` process, so
+Lightroom only waits for the transfer. The request does render a thumbnail
+and throw it away, so an unreadable JPEG is rejected before it is accepted.
+A photo is hidden from visitors until its variants exist. The pending state
+lives in the database (`photos.variants_ready`), so variants left unfinished
+by a crash or restart are rendered when the server next starts.

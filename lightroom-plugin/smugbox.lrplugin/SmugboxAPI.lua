@@ -10,6 +10,7 @@ JSON table if any).
 local LrHttp = import "LrHttp"
 local LrPathUtils = import "LrPathUtils"
 local LrTasks = import "LrTasks"
+local LrUUID = import "LrUUID"
 
 local json = require "dkjson"
 local Util = require "Util"
@@ -147,8 +148,19 @@ function SmugboxAPI:ping()
 	return self:request("GET", "/api/publish/ping", nil, "Connection test")
 end
 
+-- Creates are retried like every other call, so each logical create carries
+-- a key the backend dedupes on: a retry after a lost response returns the
+-- row the first attempt made instead of a second album or set.
+local function withIdempotencyKey(fields)
+	fields = fields or {}
+	if fields.idempotency_key == nil then
+		fields.idempotency_key = LrUUID.generateUUID()
+	end
+	return fields
+end
+
 function SmugboxAPI:createAlbum(fields)
-	return self:request("POST", "/api/publish/albums", fields, "Create album")
+	return self:request("POST", "/api/publish/albums", withIdempotencyKey(fields), "Create album")
 end
 
 function SmugboxAPI:updateAlbum(albumId, fields)
@@ -172,7 +184,7 @@ function SmugboxAPI:setOrder(albumId, photoIds)
 end
 
 function SmugboxAPI:createFolder(fields)
-	return self:request("POST", "/api/publish/folders", fields, "Create album set")
+	return self:request("POST", "/api/publish/folders", withIdempotencyKey(fields), "Create album set")
 end
 
 function SmugboxAPI:updateFolder(folderId, fields)
